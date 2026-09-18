@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from typing import Any, Dict, Optional, Tuple
 
@@ -21,6 +22,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from netra.config import (
+    BUCKET_PRICE_DOCS,
     PRICING_REGION,
     REGION,
     REGION_LONG_NAMES,
@@ -141,17 +143,86 @@ def _get_cached_price(
         return None
 
 
+def _upload_raw_doc_to_s3(
+    raw_doc: str,
+    sha256_hex: str,
+    s3_client: Any = None,
+    bucket_name: Optional[str] = None,
+) -> Optional[str]:
+    """Upload raw price document to S3 at prices/<sha256>.json. Returns s3_key if uploaded."""
+    bucket = bucket_name or BUCKET_PRICE_DOCS or os.getenv("NETRA_PRICE_DOCS_BUCKET", "")
+    if not bucket or s3_client is None:
+        return None
+    s3_key = f"prices/{sha256_hex}.json"
+    try:
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=s3_key,
+            Body=raw_doc.encode("utf-8"),
+            ContentType="application/json",
+        )
+        logger.debug(f"Stored price document provenance in s3://{bucket}/{s3_key}")
+        return s3_key
+    except Exception as exc:
+        logger.debug(f"S3 price upload skipped ({exc})")
+        return None
+
+
+def _get_raw_doc_from_s3(
+    s3_key: str,
+    s3_client: Any = None,
+    bucket_name: Optional[str] = None,
+) -> Optional[str]:
+    """Retrieve raw price document from S3 provenance bucket."""
+    bucket = bucket_name or BUCKET_PRICE_DOCS or os.getenv("NETRA_PRICE_DOCS_BUCKET", "")
+    if not bucket or s3_client is None:
+        return None
+    try:
+        resp = s3_client.get_object(Bucket=bucket, Key=s3_key)
+        body = resp["Body"].read()
+        if isinstance(body, bytes):
+            return body.decode("utf-8")
+        return str(body)
+    except Exception as exc:
+        logger.debug(f"S3 price retrieval skipped for s3://{bucket}/{s3_key}: {exc}")
+        return None
+
+
 def _put_cached_price(
     dynamodb_client: Any,
     price_doc: PriceDoc,
     table_name: str = TABLE_PRICE_CACHE,
+    s3_client: Any = None,
+    bucket_name: Optional[str] = None,
 ) -> None:
-    """Store priced document in DynamoDB cache with 24h TTL."""
+    """Store priced document in DynamoDB cache with 24h TTL, offloading raw_doc to S3."""
     if dynamodb_client is None:
         return
 
+    # Prompt G: Offload raw price document to S3 if s3_client and bucket are configured
+    s3_key = price_doc.s3_key
+    if not s3_key and price_doc.raw_doc and price_doc.price_ref.startswith("sha256:"):
+        sha256_hex = price_doc.price_ref.split(":", 1)[1]
+        uploaded_key = _upload_raw_doc_to_s3(price_doc.raw_doc, sha256_hex, s3_client, bucket_name)
+        if uploaded_key:
+            s3_key = uploaded_key
+
+    doc_to_save = PriceDoc(
+        kind=price_doc.kind,
+        sub_type=price_doc.sub_type,
+        region=price_doc.region,
+        usd_hour=price_doc.usd_hour,
+        inr_hour=price_doc.inr_hour,
+        price_ref=price_doc.price_ref,
+        source=price_doc.source,
+        fetched_at=price_doc.fetched_at,
+        raw_doc=None if s3_key else price_doc.raw_doc,
+        s3_key=s3_key,
+        ttl=price_doc.ttl,
+    )
+
     try:
-        item = price_doc.to_item()
+        item = doc_to_save.to_item()
         # If low-level client is used, convert to attribute map
         if hasattr(dynamodb_client, "put_item"):
             wire_item: Dict[str, Any] = {}
@@ -286,6 +357,8 @@ def get_price(
     size_gb: Optional[int] = None,
     dynamodb_client: Any = None,
     pricing_client: Any = None,
+    s3_client: Any = None,
+    bucket_name: Optional[str] = None,
 ) -> PriceDoc:
     """Resolve price for a resource with hashed provenance.
 
@@ -314,6 +387,7 @@ def get_price(
                 source=cached.source,
                 fetched_at=cached.fetched_at,
                 raw_doc=cached.raw_doc,
+                s3_key=cached.s3_key,
                 ttl=cached.ttl,
             )
         return cached
@@ -348,8 +422,8 @@ def get_price(
             # Record in local store for verification
             _LOCAL_PRICE_DOC_STORE[price_ref] = raw_doc
 
-            # Cache in DynamoDB
-            _put_cached_price(dynamodb_client, price_doc)
+            # Cache in DynamoDB (and upload raw document to S3 provenance bucket)
+            _put_cached_price(dynamodb_client, price_doc, s3_client=s3_client, bucket_name=bucket_name)
             return price_doc
         except Exception as err:
             logger.warning(
@@ -376,11 +450,13 @@ def verify_price_ref(
     price_ref: str,
     raw_doc: Optional[str] = None,
     dynamodb_client: Any = None,
+    s3_client: Any = None,
     table_name: str = TABLE_PRICE_CACHE,
+    bucket_name: Optional[str] = None,
 ) -> bool:
     """Verify cryptographic provenance of a price reference.
 
-    Re-hashes raw_doc (provided or retrieved from store/DynamoDB) and ensures
+    Re-hashes raw_doc (provided or retrieved from store/DynamoDB/S3) and ensures
     it matches the SHA-256 hash in price_ref.
     Fallback references always return False as they lack cryptographic proof.
     """
@@ -393,10 +469,13 @@ def verify_price_ref(
     if doc_to_check is None:
         doc_to_check = _LOCAL_PRICE_DOC_STORE.get(price_ref)
 
+    # If S3 client is available, try fetching object by sha256 key
+    if doc_to_check is None and s3_client is not None:
+        doc_to_check = _get_raw_doc_from_s3(f"prices/{expected_hash}.json", s3_client=s3_client, bucket_name=bucket_name)
+
     if doc_to_check is None and dynamodb_client is not None:
         # Search DynamoDB cache by price_ref if not in local store
         try:
-            # Query or Scan for matching price_ref
             response = dynamodb_client.scan(
                 TableName=table_name,
                 FilterExpression="price_ref = :ref",
@@ -405,11 +484,18 @@ def verify_price_ref(
             )
             items = response.get("Items", [])
             if items:
+                # Check for direct raw_doc
                 raw_val = items[0].get("raw_doc")
                 if raw_val and isinstance(raw_val, dict) and "S" in raw_val:
                     doc_to_check = raw_val["S"]
                 elif raw_val and isinstance(raw_val, str):
                     doc_to_check = raw_val
+                # If offloaded to S3, fetch via s3_key
+                elif s3_client is not None:
+                    s3_key_val = items[0].get("s3_key")
+                    s3_k = s3_key_val.get("S") if isinstance(s3_key_val, dict) else s3_key_val
+                    if s3_k:
+                        doc_to_check = _get_raw_doc_from_s3(s3_k, s3_client=s3_client, bucket_name=bucket_name)
         except Exception as err:
             logger.warning(f"DynamoDB lookup failed during verify_price_ref: {err}")
 

@@ -1,6 +1,35 @@
+import React from "react";
+
 interface AgentNarrativeProps {
   paragraphs: string[];
   narrativeSource?: "bedrock" | "ollama" | "fallback";
+}
+
+function renderFormattedText(text: string): React.ReactNode[] {
+  // Matches **bold** or `code`
+  const regex = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  const parts = text.split(regex);
+
+  return parts.map((part, idx) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return (
+        <strong key={idx} className="font-semibold text-[var(--text)]">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code
+          key={idx}
+          className="px-1.5 py-0.5 rounded bg-[var(--surface-2)] border border-[var(--line)] font-mono text-[13px] text-[var(--text)]"
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return part;
+  });
 }
 
 export default function AgentNarrative({
@@ -25,20 +54,26 @@ export default function AgentNarrative({
 
         {/* Source Badge */}
         {narrativeSource === "fallback" ? (
-          <span className="px-2 py-0.5 rounded-[5px] text-[10px] font-mono bg-[var(--surface-2)] text-[var(--text-3)] border border-[var(--line-soft)]" title="Deterministic arithmetic narrative (model bypassed or throttled)">
+          <span
+            className="px-2 py-0.5 rounded-[5px] text-[10px] font-mono bg-[var(--surface-2)] text-[var(--text-3)] border border-[var(--line-soft)]"
+            title="Deterministic arithmetic narrative (model bypassed or throttled)"
+          >
             deterministic narrative
           </span>
         ) : (
-          <span className="px-2 py-0.5 rounded-[5px] text-[10px] font-mono bg-[var(--mint-bg)] text-[var(--mint)] border border-[var(--mint-line)]" title="Verified model generation at temperature=0">
+          <span
+            className="px-2 py-0.5 rounded-[5px] text-[10px] font-mono bg-[var(--mint-bg)] text-[var(--mint)] border border-[var(--mint-line)]"
+            title="Verified model generation at temperature=0"
+          >
             claude-3.7-sonnet · verified
           </span>
         )}
       </div>
 
-      <div className="space-y-4 text-[14.5px] leading-[1.68] text-[var(--text-2)]">
+      <div className="space-y-4 text-[14.5px] leading-[1.68] text-[var(--text-2)] max-w-[68ch]">
         {paragraphs.map((para, i) => (
           <p key={i}>
-            {para}
+            {renderFormattedText(para)}
           </p>
         ))}
       </div>

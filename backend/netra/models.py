@@ -56,6 +56,7 @@ class PriceDoc:
     source: str  # "aws_pricing_api" | "cache" | "fallback"
     fetched_at: int  # epoch seconds
     raw_doc: Optional[str] = None  # Canonical JSON string of source price item
+    s3_key: Optional[str] = None  # S3 object key (prices/<sha256>.json)
     ttl: Optional[int] = None  # Cache expiry epoch seconds
 
     def to_dict(self) -> Dict[str, Any]:
@@ -83,6 +84,7 @@ class PriceDoc:
             "source": str(data["source"]),
             "fetched_at": int(data["fetched_at"]),
             "raw_doc": data.get("raw_doc"),
+            "s3_key": data.get("s3_key"),
             "ttl": int(data["ttl"]) if data.get("ttl") is not None else None,
         }
         return cls(**clean_data)

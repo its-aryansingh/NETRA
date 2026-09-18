@@ -17,7 +17,7 @@ Globals:
     Runtime: python3.12
     Environment:
       Variables:
-        AWS_REGION: !Ref "AWS::Region"
+        NETRA_PRICE_DOCS_BUCKET: !Ref NetraPriceDocsBucket
         NETRA_TABLE_BURN_SNAPSHOTS: !Ref NetraBurnSnapshotsTable
         NETRA_TABLE_PRICE_CACHE: !Ref NetraPriceCacheTable
         NETRA_TABLE_FINDINGS: !Ref NetraFindingsTable
@@ -116,6 +116,22 @@ Resources:
           KeyType: RANGE
 
   # ----------------------------------------------------------------------------
+  # S3 Provenance Storage (Prompt G: Hashed Price Documents)
+  # ----------------------------------------------------------------------------
+
+  NetraPriceDocsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "netra-price-docs-${AWS::AccountId}-${AWS::Region}"
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # ----------------------------------------------------------------------------
   # Lambda Functions
   # ----------------------------------------------------------------------------
 
@@ -151,6 +167,10 @@ Resources:
               Action:
                 - events:PutEvents
               Resource: "*"
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource: !Sub "${NetraPriceDocsBucket.Arn}/*"
       Events:
         CollectorSchedule:
           Type: Schedule
@@ -307,6 +327,10 @@ Resources:
                 - !GetAtt NetraFindingsTable.Arn
                 - !Sub "${NetraFindingsTable.Arn}/index/*"
                 - !GetAtt NetraAuditLogTable.Arn
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource: !Sub "${NetraPriceDocsBucket.Arn}/*"
       Events:
         HttpApiCatchAll:
           Type: HttpApi
@@ -597,3 +621,6 @@ Outputs:
   DashboardName:
     Description: "Name of the NETRA CloudWatch Dashboard"
     Value: !Ref NetraCloudWatchDashboard
+  PriceDocsBucket:
+    Description: "Name of S3 bucket storing hashed AWS Price List provenance documents"
+    Value: !Ref NetraPriceDocsBucket

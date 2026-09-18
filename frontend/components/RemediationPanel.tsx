@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { formatINR } from "@/lib/format";
 import { approveFinding, dismissFinding, snoozeFinding } from "@/lib/api";
+import PolicyBadge from "@/components/PolicyBadge";
 
 interface RemediationPanelProps {
   findingId: string;
@@ -14,6 +15,11 @@ interface RemediationPanelProps {
   rulesFired: Array<{ rule: string; detail: string }>;
   status: "DETECTED" | "NARRATING" | "AWAITING_APPROVAL" | "EXECUTING" | "RESOLVED" | "DISMISSED" | "SNOOZED" | string;
   isProtected?: boolean;
+  policyDecision?: {
+    allowed: boolean;
+    rule_id?: string;
+    reason?: string;
+  };
   onStatusChange?: (newStatus: any) => void;
 }
 
@@ -27,14 +33,22 @@ export default function RemediationPanel({
   rulesFired,
   status,
   isProtected = false,
+  policyDecision,
   onStatusChange,
 }: RemediationPanelProps) {
   const [loading, setLoading] = useState(false);
   const [currentStatus, setCurrentStatus] = useState(status);
 
+  const isDenied = isProtected || (policyDecision && !policyDecision.allowed);
+  const ruleId = policyDecision?.rule_id || (isProtected ? "forbid_protected" : "forbid_policy");
+  const denialReason =
+    policyDecision?.reason ||
+    (isProtected
+      ? "Resource carries netra:protected tag. Cedar policy forbids mutation on protected infrastructure."
+      : "Cedar policy engine denied automated execution.");
+
   const handleApprove = async () => {
-    if (isProtected) {
-      alert("Action denied: Resource carries netra:protected tag.");
+    if (isDenied) {
       return;
     }
     setLoading(true);
@@ -152,36 +166,37 @@ export default function RemediationPanel({
         <div className="w-full py-3 px-4 rounded-[9px] bg-[var(--mint-bg)] border border-[var(--mint-line)] text-[var(--mint)] font-mono text-center text-xs font-semibold">
           ✓ REMEDIATION EXECUTED & RESOLVED
         </div>
-      ) : isProtected ? (
-        <div className="w-full py-3 px-4 rounded-[9px] bg-[var(--amber)]/10 border border-[var(--amber)]/30 text-[var(--amber)] font-mono text-center text-xs">
-          Protected Resource — Automated Remediation Blocked
-        </div>
       ) : (
-        <div className="space-y-2">
-          {/* Primary Action Button (Approve) */}
-          <button
-            onClick={handleApprove}
-            disabled={loading}
-            className="w-full min-h-[48px] py-3 px-4 rounded-[9px] bg-[var(--ember)] hover:bg-[#d97c32] text-[var(--ground)] font-semibold text-xs tracking-wide uppercase transition-colors flex items-center justify-center gap-2"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M20 6 9 17l-5-5" />
-            </svg>
-            <span>{loading ? "Authorizing..." : "Approve & Execute"}</span>
-          </button>
+        <div className="space-y-2.5">
+          {/* If denied by policy, replace Approve button with PolicyBadge inline */}
+          {isDenied ? (
+            <PolicyBadge ruleId={ruleId} reason={denialReason} />
+          ) : (
+            <button
+              onClick={handleApprove}
+              disabled={loading}
+              className="w-full min-h-[48px] py-3 px-4 rounded-[9px] bg-[var(--ember)] hover:bg-[#d97c32] text-[var(--ground)] font-semibold text-xs tracking-wide uppercase transition-colors flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              <span>{loading ? "Authorizing..." : "Approve & Execute"}</span>
+            </button>
+          )}
 
+          {/* Snooze & Dismiss remain accessible */}
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={handleSnooze}
               disabled={loading}
-              className="py-2 px-3 rounded-[7px] bg-[var(--surface-2)] hover:bg-[var(--line)] text-xs text-[var(--text-2)] font-mono border border-[var(--line)] min-h-[44px]"
+              className="py-2 px-3 rounded-[7px] bg-[var(--surface-2)] hover:bg-[var(--line)] text-xs text-[var(--text-2)] font-mono border border-[var(--line)] min-h-[44px] cursor-pointer"
             >
               Snooze 2h
             </button>
             <button
               onClick={handleDismiss}
               disabled={loading}
-              className="py-2 px-3 rounded-[7px] bg-[var(--surface-2)] hover:bg-[var(--line)] text-xs text-[var(--text-3)] hover:text-[var(--alarm)] font-mono border border-[var(--line)] min-h-[44px]"
+              className="py-2 px-3 rounded-[7px] bg-[var(--surface-2)] hover:bg-[var(--line)] text-xs text-[var(--text-3)] hover:text-[var(--alarm)] font-mono border border-[var(--line)] min-h-[44px] cursor-pointer"
             >
               Dismiss
             </button>

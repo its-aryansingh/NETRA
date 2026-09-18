@@ -28,11 +28,8 @@ export default function InventoryTable({
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-sm font-semibold text-[var(--text)] font-display">
-            Live Priced Inventory
+            Live priced inventory
           </h3>
-          <p className="text-xs text-[var(--text-3)] font-mono">
-            Every resource priced deterministically against AWS Price List documents
-          </p>
         </div>
         <div className="text-xs font-mono text-[var(--text-3)]">
           {resources.length} billable resources
@@ -42,7 +39,7 @@ export default function InventoryTable({
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs font-mono">
           <thead>
-            <tr className="border-b border-[var(--line)] text-[var(--text-3)] uppercase tracking-wider text-[11px]">
+            <tr className="border-b border-[var(--line)] text-[var(--text-3)] uppercase tracking-[0.09em] text-[11px]">
               <th className="pb-3 font-medium">Kind</th>
               <th className="pb-3 font-medium">Resource ID</th>
               <th className="pb-3 font-medium">Sub Type</th>
@@ -56,69 +53,59 @@ export default function InventoryTable({
             {resources.length === 0 ? (
               <tr>
                 <td colSpan={7} className="py-8 text-center text-[var(--text-3)]">
-                  Nothing burning above baseline. Collector last ran 12s ago.
+                  No billable resources running. Nothing to price.
                 </td>
               </tr>
             ) : (
-              resources.map(res => {
-                const isVerified = res.price_ref.startsWith("sha256:");
-                const shortRef = isVerified
-                  ? `sha256:${res.price_ref.slice(7, 15)}...`
-                  : res.price_ref;
+              resources.map((res) => {
+                const isHashed = res.price_ref && res.price_ref.startsWith("sha256:");
+                const hashShort = isHashed ? res.price_ref.replace("sha256:", "").slice(0, 12) : null;
 
                 return (
                   <tr key={res.resource_id} className="hover:bg-[var(--surface-2)]/50 transition-colors">
-                    <td className="py-3">
-                      <span className="px-2 py-0.5 rounded-[5px] text-[10px] uppercase font-bold bg-[var(--surface-2)] text-[var(--text-2)] border border-[var(--line-soft)]">
-                        {res.kind}
-                      </span>
-                    </td>
+                    <td className="py-3 text-[var(--text-2)] capitalize">{res.kind}</td>
                     <td className="py-3 text-[var(--text)] font-medium">
-                      {res.resource_id}
-                      {res.tags?.["netra:protected"] && (
-                        <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] bg-[var(--amber)]/10 text-[var(--amber)] border border-[var(--amber)]/20">
-                          protected
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5">
+                        <span>{res.resource_id}</span>
+                        {res.tags?.["netra:protected"] && (
+                          <span className="text-[10px] bg-[var(--amber)]/10 text-[var(--amber)] px-1.5 py-0.2 rounded border border-[var(--amber)]/30">
+                            protected
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3 text-[var(--text-2)]">{res.sub_type}</td>
                     <td className="py-3">
-                      <span className="inline-flex items-center gap-1.5 text-[var(--text-2)]">
-                        <span
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            res.state === "running" ? "bg-[var(--mint)]" : "bg-[var(--text-3)]"
-                          }`}
-                        />
+                      <span className="inline-flex items-center gap-1.5 text-[var(--mint)]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[var(--mint)]"></span>
                         {res.state}
                       </span>
                     </td>
-                    <td className="py-3 text-[var(--text-3)]">{formatAge(res.age_seconds)}</td>
-                    <td className="py-3 text-right text-[var(--ember)] font-semibold">
+                    <td className="py-3 text-[var(--text-3)]">
+                      {formatAge(res.age_seconds)}
+                    </td>
+                    <td className="py-3 text-right font-semibold text-[var(--text)]">
                       {formatINR(res.inr_hour)}/hr
                     </td>
                     <td className="py-3 pl-4">
-                      <span
-                        title={res.price_ref}
-                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[5px] text-[11px] border ${
-                          isVerified
-                            ? "bg-[var(--mint-bg)] text-[var(--mint)] border-[var(--mint-line)]"
-                            : "bg-[var(--amber)]/10 text-[var(--amber)] border-[var(--amber)]/30"
-                        }`}
-                      >
-                        {isVerified ? (
-                          <svg className="w-3 h-3 text-[var(--mint)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
-                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      {isHashed ? (
+                        <span
+                          className="inline-flex items-center gap-1 text-[11px] text-[var(--mint)] bg-[var(--mint-bg)] border border-[var(--mint-line)] px-1.5 py-0.5 rounded cursor-help"
+                          title={`Verified SHA-256 Provenance:\n${res.price_ref}\nDirect cryptographic hash of official AWS Pricing API payload.`}
+                        >
+                          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <polyline points="20 6 9 17 4 12" />
                           </svg>
-                        ) : (
-                          <svg className="w-3 h-3 text-[var(--amber)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <circle cx="12" cy="12" r="10" />
-                            <line x1="12" y1="8" x2="12" y2="12" />
-                            <line x1="12" y1="16" x2="12.01" y2="16" />
-                          </svg>
-                        )}
-                        <span>{shortRef}</span>
-                      </span>
+                          <span>sha256:{hashShort}…</span>
+                        </span>
+                      ) : (
+                        <span
+                          className="text-[11px] text-[var(--text-3)] bg-[var(--surface-2)] border border-[var(--line-soft)] px-1.5 py-0.5 rounded cursor-help"
+                          title="Fallback price model applied (API offline or throttled)"
+                        >
+                          fallback:{res.sub_type}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 );

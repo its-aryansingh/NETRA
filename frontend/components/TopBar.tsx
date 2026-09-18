@@ -2,21 +2,32 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { isDemoMode, setDemoMode } from "@/lib/api";
+import useSWR from "swr";
+import { getSummary, isDemoMode, setDemoMode } from "@/lib/api";
 import { useEffect, useState } from "react";
 
 export default function TopBar() {
   const pathname = usePathname();
   const [demo, setDemo] = useState(true);
 
+  const { data: summary } = useSWR("/summary", getSummary, {
+    refreshInterval: 5000,
+    keepPreviousData: true,
+    revalidateOnFocus: false,
+  });
+
   useEffect(() => {
     setDemo(isDemoMode());
   }, []);
 
   const toggleDemo = () => {
-    setDemoMode(!demo);
-    setDemo(!demo);
+    const nextVal = !demo;
+    setDemoMode(nextVal);
+    setDemo(nextVal);
   };
+
+  const collectorAgeS = summary?.collector_age_s;
+  const isStale = collectorAgeS != null && collectorAgeS > 180;
 
   return (
     <header className="w-full border-b border-[var(--line)] bg-[var(--surface-2)]/90 backdrop-blur sticky top-0 z-50">
@@ -73,14 +84,23 @@ export default function TopBar() {
 
         {/* Right side status items */}
         <div className="flex items-center gap-3">
-          {/* Live collector status pill with pulsing dot */}
-          <div className="flex items-center gap-2 px-2.5 py-1 rounded-[7px] bg-[var(--surface)] border border-[var(--line)] text-xs text-[var(--text-2)]">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-pulse-dot absolute inline-flex h-full w-full rounded-full bg-[var(--mint)] opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--mint)]"></span>
-            </span>
-            <span className="font-mono text-[11px] uppercase tracking-wider">Collector 1m</span>
-          </div>
+          {/* Stale or Nominal Collector status pill */}
+          {isStale ? (
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-[7px] bg-[var(--amber-bg)] border border-[var(--amber-line)] text-xs text-[var(--amber)] font-mono">
+              <span className="relative flex h-2 w-2">
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--amber)]"></span>
+              </span>
+              <span>Collector last ran {Math.round(collectorAgeS / 60)}m ago</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-[7px] bg-[var(--surface)] border border-[var(--line)] text-xs text-[var(--text-2)]">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-pulse-dot absolute inline-flex h-full w-full rounded-full bg-[var(--mint)] opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--mint)]"></span>
+              </span>
+              <span className="font-mono text-[11px] uppercase tracking-wider">Collector 1m</span>
+            </div>
+          )}
 
           {/* Target Region Chip */}
           <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-[7px] bg-[var(--ground)] border border-[var(--line-soft)] text-xs text-[var(--text-3)] font-mono">

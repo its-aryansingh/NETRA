@@ -1,0 +1,68 @@
+[
+  {
+    "uid": {
+      "type": "User",
+      "id": "operator"
+    },
+    "attrs": {
+      "role": "finops_operator"
+    },
+    "parents": []
+  },
+  {
+    "uid": {
+      "type": "Action",
+      "id": "stop"
+    },
+    "attrs": {},
+    "parents": []
+  },
+  {
+    "uid": {
+      "type": "Action",
+      "id": "terminate"
+    },
+    "attrs": {},
+    "parents": []
+  },
+  {
+    "uid": {
+      "type": "Action",
+      "id": "delete"
+    },
+    "attrs": {},
+    "parents": []
+  },
+  {
+    "uid": {
+      "type": "Action",
+      "id": "downsize"
+    },
+    "attrs": {},
+    "parents": []
+  },
+  {
+    "uid": {
+      "type": "Action",
+      "id": "none"
+    },
+    "attrs": {},
+    "parents": []
+  },
+  {
+    "uid": {
+      "type": "Action",
+      "id": "snapshot_and_terminate"
+    },
+    "attrs": {},
+    "parents": []
+  },
+  {
+    "uid": {
+      "type": "Action",
+      "id": "snapshot_and_delete"
+    },
+    "attrs": {},
+    "parents": []
+  }
+]

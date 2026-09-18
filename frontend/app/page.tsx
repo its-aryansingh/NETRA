@@ -1,55 +1,86 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
+import useSWR from "swr";
 import BurnHero from "@/components/BurnHero";
 import BurnChart from "@/components/BurnChart";
 import MetricTile from "@/components/MetricTile";
 import InventoryTable from "@/components/InventoryTable";
 import FindingCard from "@/components/FindingCard";
+import DemoControls from "@/components/DemoControls";
 import {
   getSummary,
   getBurn,
   getInventory,
   getFindings,
 } from "@/lib/api";
-import { FindingItem, PricedResourceItem } from "@/lib/demo-data";
 import { formatINR } from "@/lib/format";
+import { useCountUp } from "@/lib/useCountUp";
 
 export default function OverviewPage() {
   const [selectedRange, setSelectedRange] = useState<"6h" | "24h" | "7d">("24h");
-  const [summary, setSummary] = useState<any>(null);
-  const [burnData, setBurnData] = useState<any>(null);
-  const [inventory, setInventory] = useState<PricedResourceItem[]>([]);
-  const [findings, setFindings] = useState<FindingItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
 
-  const loadData = useCallback(async () => {
-    try {
-      const hoursMap = { "6h": 6, "24h": 24, "7d": 168 };
-      const [sum, burn, inv, fnd] = await Promise.all([
-        getSummary(),
-        getBurn(hoursMap[selectedRange]),
-        getInventory(),
-        getFindings("open"),
-      ]);
-      setSummary(sum);
-      setBurnData(burn);
-      setInventory(inv.resources || []);
-      setFindings(fnd.findings || []);
-    } catch (err) {
-      console.error("Failed to load overview data:", err);
-    } finally {
-      setIsLoading(false);
+  const hoursMap = { "6h": 6, "24h": 24, "7d": 168 };
+
+  const {
+    data: summary,
+    error: summaryError,
+    isLoading: summaryLoading,
+    mutate: mutateSummary,
+  } = useSWR("/summary", getSummary, {
+    refreshInterval: 5000,
+    keepPreviousData: true,
+    revalidateOnFocus: false,
+  });
+
+  const {
+    data: burnData,
+    mutate: mutateBurn,
+  } = useSWR(
+    ["/burn", selectedRange],
+    () => getBurn(hoursMap[selectedRange]),
+    {
+      refreshInterval: 5000,
+      keepPreviousData: true,
+      revalidateOnFocus: false,
     }
-  }, [selectedRange]);
+  );
 
-  useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 5000);
-    return () => clearInterval(interval);
-  }, [loadData]);
+  const {
+    data: invData,
+    mutate: mutateInventory,
+  } = useSWR("/inventory", getInventory, {
+    refreshInterval: 5000,
+    keepPreviousData: true,
+    revalidateOnFocus: false,
+  });
 
-  if (isLoading && !summary) {
+  const {
+    data: fndData,
+    mutate: mutateFindings,
+  } = useSWR("/findings/open", () => getFindings("open"), {
+    refreshInterval: 5000,
+    keepPreviousData: true,
+    revalidateOnFocus: false,
+  });
+
+  const handleRefresh = () => {
+    mutateSummary();
+    mutateBurn();
+    mutateInventory();
+    mutateFindings();
+  };
+
+  const inventory = invData?.resources || [];
+  const findings = fndData?.findings || [];
+  const collectorAgeS = summary?.collector_age_s ?? 12;
+
+  // Animated numbers with useCountUp (400ms ease-out cubic)
+  const animatedProjected = useCountUp(summary?.projected_month_inr || 0, 400);
+  const animatedPrevented = useCountUp(summary?.prevented_today_inr || 0, 400);
+
+  // First load skeleton only
+  if (summaryLoading && !summary && !summaryError) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 animate-pulse">
         <div className="h-32 bg-[var(--surface)] border border-[var(--line)] rounded-[14px] mb-6" />
@@ -75,19 +106,17 @@ export default function OverviewPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
       {/* Burn Hero Unit */}
-      {summary && (
-        <BurnHero
-          burnInrHour={summary.burn_inr_hour}
-          baselineInrHour={summary.baseline_inr_hour}
-          multiple={summary.multiple}
-          creditsRemainingUsd={summary.credits_remaining_usd}
-          creditsInitialUsd={summary.credits_initial_usd}
-          runwayHours={summary.runway_hours}
-          selectedRange={selectedRange}
-          onRangeChange={setSelectedRange}
-          onSimulate={loadData}
-        />
-      )}
+      <BurnHero
+        burnInrHour={summary?.burn_inr_hour}
+        baselineInrHour={summary?.baseline_inr_hour ?? 23.04}
+        multiple={summary?.multiple ?? 1.0}
+        creditsRemainingUsd={summary?.credits_remaining_usd ?? 184.2}
+        creditsInitialUsd={summary?.credits_initial_usd ?? 200.0}
+        runwayHours={summary?.runway_hours ?? 196}
+        selectedRange={selectedRange}
+        onRangeChange={setSelectedRange}
+        isUnreachable={Boolean(summaryError)}
+      />
 
       {/* Main Grid: 8 Cols (Charts, Metrics, Inventory) + 4 Cols (Anomalies Rail) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -105,25 +134,22 @@ export default function OverviewPage() {
           {/* Three Metric Tiles */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <MetricTile
-              label="Projected Month-End"
-              value={formatINR(summary?.projected_month_inr || 0)}
-              subtitle="Current burn trajectory"
+              label="Projected month-end"
+              value={formatINR(animatedProjected)}
+              subtitle="if nothing changes"
               variant="default"
-              tag="30-day"
             />
             <MetricTile
-              label="Prevented Spend"
-              value={formatINR(summary?.prevented_today_inr || 0)}
-              subtitle="Automated & approved fixes"
+              label="Prevented today"
+              value={formatINR(animatedPrevented)}
+              subtitle={`${summary?.approved_remediations_count ?? 0} approved remediations`}
               variant="mint"
-              tag="Today"
             />
             <MetricTile
-              label="Detection Latency"
-              value={`${summary?.detection_latency_s || 42}s`}
+              label="Detection latency"
+              value={summary?.detection_latency_s != null ? `${summary.detection_latency_s}s` : "—"}
               subtitle="Cost Explorer: up to 24h"
               variant="ember"
-              tag="Real-Time"
             />
           </div>
 
@@ -137,11 +163,8 @@ export default function OverviewPage() {
             <div className="flex items-center justify-between pb-2 border-b border-[var(--line)]">
               <div>
                 <h3 className="font-display font-semibold text-sm text-[var(--text)]">
-                  Active Findings
+                  Open investigations
                 </h3>
-                <p className="text-xs text-[var(--text-3)] font-mono">
-                  Autonomous cost agent alerts
-                </p>
               </div>
               <span className="px-2 py-0.5 rounded-[5px] text-xs font-mono font-semibold bg-[var(--surface)] text-[var(--text-2)] border border-[var(--line)]">
                 {findings.length}
@@ -168,17 +191,17 @@ export default function OverviewPage() {
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                   <path d="m9 12 2 2 4-4" />
                 </svg>
-                <h4 className="text-xs font-semibold text-[var(--text)] font-display mb-1">
-                  Baseline Expenditure Nominal
-                </h4>
                 <p className="text-xs text-[var(--text-3)] font-mono">
-                  Nothing burning above baseline. Collector last ran 12s ago.
+                  Nothing burning above baseline. Collector last ran {collectorAgeS}s ago.
                 </p>
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* Demo Controls at the bottom (gated on NEXT_PUBLIC_DEMO===1) */}
+      <DemoControls onSimulate={handleRefresh} />
     </div>
   );
 }

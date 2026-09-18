@@ -28,6 +28,7 @@ TABLE_AUDIT_LOG: str = os.getenv("NETRA_TABLE_AUDIT_LOG", "netra_audit_log")
 
 # Notification & Plumbing Targets
 SNS_TOPIC_ARN: str = os.getenv("NETRA_SNS_TOPIC_ARN", "")
+BUCKET_PRICE_DOCS: str = os.getenv("NETRA_PRICE_DOCS_BUCKET", "")
 
 # Initial and remaining hackathon credit allocation in USD ($200 basis)
 CREDITS_INITIAL_USD: float = float(os.getenv("NETRA_CREDITS_INITIAL_USD", "200.0"))
