@@ -1,0 +1,62 @@
+{
+  "name": "netra-mcp-actions",
+  "version": "3.0.0",
+  "description": "NETRA Cloud Spend Control & Remediation Action Boundary",
+  "vendor": "NETRA Contributors",
+  "tools": [
+    {
+      "name": "netra_dry_run",
+      "description": "Preview proposed remediation plan and evaluate policy without mutating AWS resources.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "finding_id": {
+            "type": "string",
+            "description": "The unique finding identifier"
+          }
+        },
+        "required": ["finding_id"]
+      }
+    },
+    {
+      "name": "netra_execute",
+      "description": "Execute human-approved remediation. REQUIRES a valid, unexpired HMAC approval token minted by the operator.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "finding_id": {
+            "type": "string",
+            "description": "The unique finding identifier"
+          },
+          "approval_token": {
+            "type": "string",
+            "description": "Cryptographic HMAC-SHA256 approval token"
+          }
+        },
+        "required": ["finding_id", "approval_token"]
+      }
+    },
+    {
+      "name": "netra_rollback",
+      "description": "Restore a terminated resource from an EBS safeguard snapshot.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "audit_id": {
+            "type": "string",
+            "description": "Audit log identifier containing snapshot reference"
+          }
+        },
+        "required": ["audit_id"]
+      }
+    },
+    {
+      "name": "netra_status",
+      "description": "Query live account burn rate (₹/hr), baseline multiple, and credit runway.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

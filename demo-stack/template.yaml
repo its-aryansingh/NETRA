@@ -1,0 +1,100 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  NETRA Demo Stack — Reproducible judge environment for WeMakeDevs × AWS First Commit 2026.
+  Creates a runaway c5.4xlarge, orphaned gp3 volumes, a netra:protected control instance,
+  and a healthy control instance.
+  WARNING: Burns approximately ₹70.00/hr ($0.79/hr) while running. Run 'make demo-down' to destroy.
+
+Parameters:
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64'
+    Description: Amazon Linux 2023 AMI SSM locator
+
+Resources:
+  # 1. The Runaway Instance (triggers fast-path <10s detection & idle compute rule)
+  RunawayComputeInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: c5.4xlarge
+      ImageId: !Ref LatestAmiId
+      Tags:
+        - Key: Name
+          Value: netra-runaway-c5-4xlarge
+        - Key: netra:demo
+          Value: runaway
+        - Key: Environment
+          Value: dev-unmonitored
+
+  # 2. Orphaned EBS Volumes (triggers orphaned storage detection)
+  OrphanVolumeOne:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Size: 100
+      VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: netra-orphan-ebs-100gb-1
+        - Key: netra:demo
+          Value: orphaned-storage
+
+  OrphanVolumeTwo:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Size: 100
+      VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: netra-orphan-ebs-100gb-2
+        - Key: netra:demo
+          Value: orphaned-storage
+
+  # 3. Protected Control Instance (proves policy guardrail denial)
+  ProtectedControlInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref LatestAmiId
+      Tags:
+        - Key: Name
+          Value: netra-protected-control
+        - Key: netra:protected
+          Value: "true"
+        - Key: Owner
+          Value: production-sre
+
+  # 4. Healthy Tagged Control Instance
+  HealthyControlInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref LatestAmiId
+      Tags:
+        - Key: Name
+          Value: netra-healthy-control
+        - Key: Owner
+          Value: dev-team
+        - Key: netra:managed
+          Value: "true"
+
+Outputs:
+  EstimatedBurnRate:
+    Description: Total burn rate of the demo stack
+    Value: "≈₹70.00/hr ($0.79/hr)"
+  RunawayInstanceId:
+    Description: ID of the runaway c5.4xlarge instance
+    Value: !Ref RunawayComputeInstance
+  ProtectedInstanceId:
+    Description: ID of the protected control instance (removals denied by policy)
+    Value: !Ref ProtectedControlInstance
+  HealthyInstanceId:
+    Description: ID of the healthy control instance
+    Value: !Ref HealthyControlInstance
+  OrphanVolume1Id:
+    Description: ID of the first orphaned volume
+    Value: !Ref OrphanVolumeOne
+  OrphanVolume2Id:
+    Description: ID of the second orphaned volume
+    Value: !Ref OrphanVolumeTwo

@@ -33,11 +33,19 @@ class ToolTracker:
     def __init__(self) -> None:
         self.traces: List[Dict[str, Any]] = []
 
-    def record(self, tool_name: str, duration_ms: int, success: bool = True) -> None:
+    def record(
+        self,
+        tool_name: str,
+        duration_ms: int,
+        success: bool = True,
+        via: Optional[str] = None,
+    ) -> None:
+        boundary = via if via is not None else ("mcp" if tool_name.startswith(("netra_", "mcp_")) else "direct")
         self.traces.append({
             "tool": tool_name,
             "ms": duration_ms,
             "success": success,
+            "via": boundary,
         })
 
     def get_traces(self) -> List[Dict[str, Any]]:

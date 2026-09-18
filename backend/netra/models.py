@@ -195,6 +195,8 @@ class Finding:
     narrative: Optional[Narrative] = None
     narrative_source: Optional[str] = None  # "bedrock" | "ollama" | "fallback"
     agent_trace: Optional[List[Dict[str, Any]]] = None
+    detection_path: str = "sweep"  # "fast" | "sweep"
+    detection_latency_ms: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary representation matching JSON data contract."""
@@ -207,7 +209,10 @@ class Finding:
             "computed": self.computed,
             "detected_at": self.detected_at,
             "account_id": self.account_id,
+            "detection_path": self.detection_path,
         }
+        if self.detection_latency_ms is not None:
+            data["detection_latency_ms"] = self.detection_latency_ms
         if self.narrative is not None:
             data["narrative"] = self.narrative.to_dict()
         if self.narrative_source is not None:
@@ -258,6 +263,8 @@ class Finding:
             narrative=narrative,
             narrative_source=data.get("narrative_source"),
             agent_trace=data.get("agent_trace"),
+            detection_path=str(data.get("detection_path", "sweep")),
+            detection_latency_ms=int(data["detection_latency_ms"]) if data.get("detection_latency_ms") is not None else None,
         )
 
     @classmethod

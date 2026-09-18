@@ -163,6 +163,16 @@ def investigate_finding(
     utilization = get_cloudwatch_utilization(res_id, minutes=60, session=sess, region=region, tracker=tracker)
     dependents = find_dependents(res_id, session=sess, region=region, tracker=tracker)
 
+    # Preview proposed action across MCP boundary (read-only proposal mode)
+    try:
+        from netra.mcp.tools import netra_dry_run
+        t_mcp = time.time()
+        dry_res = netra_dry_run(fid, session=sess, account_id=finding.account_id)
+        mcp_ms = max(1, int((time.time() - t_mcp) * 1000))
+        tracker.record("netra_dry_run", mcp_ms, success=dry_res.get("ok", True), via="mcp")
+    except Exception as exc:
+        logger.debug(f"MCP dry run preview skipped: {exc}")
+
     evidence_chips = [
         {"label": "CPUUtilization max", "value": f"{utilization.get('cpu_utilization_max', 2.0)}%"},
         {"label": "NetworkPacketsOut", "value": str(utilization.get('network_packets_out', 450))},

@@ -27,6 +27,37 @@ def templated_narrative(
     share_pct = comp.get("share_of_burn_pct", 100.0)
     age_m = max(1, res.age_seconds // 60)
 
+    # Fast-Path Subtlety: newly launched resource with unknown metrics
+    if getattr(finding, "detection_path", "sweep") == "fast":
+        headline = f"New {res.sub_type} launched (₹{inr_hour}/hr) — Fast-Path Watch"
+        if len(headline) > 70:
+            headline = headline[:67] + "..."
+        p1 = (
+            f"A new {res.sub_type} instance ({res.resource_id}) was detected via sub-10s fast path in {res.region}. "
+            f"It will burn ₹{inr_hour} per hour with projected 30-day exposure of ₹{inr_month}."
+        )
+        p2 = (
+            "Because this compute instance launched moments ago, CloudWatch utilization telemetry is not yet established. "
+            "NETRA refuses to guess whether this resource is idle without sufficient observation data."
+        )
+        p3 = (
+            "We recommend actively watching this resource rather than terminating it prematurely. "
+            "The 60-second scheduled sweep will escalate to critical if it remains idle after 30 minutes."
+        )
+        fast_chips = evidence or [
+            {"label": "Detection Path", "value": "fast (<10s)"},
+            {"label": "Burn Rate", "value": f"₹{inr_hour}/hr"},
+            {"label": "State", "value": res.state},
+        ]
+        return Narrative(
+            headline=headline,
+            narrative=[p1, p2, p3],
+            evidence=fast_chips,
+            recommended_action="none",
+            risk="low",
+            steps=[{"api": "none", "why": "Fast-path watch mode: awaiting workload telemetry"}],
+        )
+
     # Paragraph 1: What happened & spend anomaly
     p1 = (
         f"A {res.sub_type} has been running in {res.region} for {age_m} minutes. "

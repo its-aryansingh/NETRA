@@ -29,6 +29,8 @@ Resources:
     Properties:
       TableName: netra_burn_snapshots
       BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
@@ -63,6 +65,8 @@ Resources:
     Properties:
       TableName: netra_findings
       BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
@@ -145,7 +149,25 @@ Resources:
           Properties:
             Schedule: "rate(1 minute)"
             Name: netra-collector-schedule
-            Description: "Triggers NETRA collector every 60 seconds"
+            Description: "Triggers NETRA collector every 60 seconds (sweep path)"
+            Input: '{"fast_path": false}'
+        FastPathRule:
+          Type: CloudWatchEvent
+          Properties:
+            Pattern:
+              source:
+                - "aws.ec2"
+              detail-type:
+                - "EC2 Instance State-change Notification"
+                - "AWS API Call via CloudTrail"
+              detail:
+                state:
+                  - "running"
+                  - "pending"
+                eventName:
+                  - "RunInstances"
+                  - "CreateVolume"
+                  - "CreateNatGateway"
 
   # Stub for Phase 4: Bedrock/Strands Investigator Agent
   InvestigatorFunction:
@@ -321,6 +343,43 @@ Resources:
         - LambdaInvokePolicy:
             FunctionName: !Ref ExecutorFunction
 
+  # Phase 4 (v3): MCP Action Server Lambda (Exclusive mutating IAM boundary)
+  McpActionsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: netra-mcp-actions
+      Description: Model Context Protocol action server executing approved remediations
+      CodeUri: ../backend
+      Handler: netra.mcp.server.lambda_handler
+      Timeout: 60
+      FunctionUrlConfig:
+        AuthType: AWS_IAM
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ec2:DescribeInstances
+                - ec2:DescribeVolumes
+                - ec2:DescribeNatGateways
+                - ec2:StopInstances
+                - ec2:TerminateInstances
+                - ec2:DeleteVolume
+                - ec2:CreateSnapshot
+                - ec2:DeleteNatGateway
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+                - dynamodb:PutItem
+                - dynamodb:Query
+              Resource:
+                - !GetAtt NetraFindingsTable.Arn
+                - !Sub "${NetraFindingsTable.Arn}/index/*"
+                - !GetAtt NetraAuditLogTable.Arn
+                - !GetAtt NetraBurnSnapshotsTable.Arn
+                - !GetAtt NetraPriceCacheTable.Arn
+
 Outputs:
   CollectorFunctionArn:
     Description: "ARN of the Collector Lambda"
@@ -331,6 +390,12 @@ Outputs:
   ExecutorFunctionArn:
     Description: "ARN of the Executor Lambda"
     Value: !GetAtt ExecutorFunction.Arn
+  McpActionsFunctionArn:
+    Description: "ARN of the MCP Action Server Lambda"
+    Value: !GetAtt McpActionsFunction.Arn
+  McpActionsFunctionUrl:
+    Description: "Function URL of the MCP Action Server Lambda"
+    Value: !GetAtt McpActionsFunctionUrl.FunctionUrl
   StateMachineArn:
     Description: "ARN of the Remediation Step Functions State Machine"
     Value: !GetAtt NetraRemediateStateMachine.Arn

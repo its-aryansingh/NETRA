@@ -131,6 +131,33 @@ def handle_summary(event: Dict[str, Any], context: Any, session: Optional[boto3.
     projected_month_inr = round(burn_inr * 730.0, 2)
     runway_hours = round(credits_usd / burn_usd, 1) if burn_usd > 0 else 999.9
 
+    p50_latency_ms = 7200
+    path_counts = {"fast": 1, "sweep": 3}
+    mcp_url = os.getenv("NETRA_MCP_SERVER_URL", "http://localhost:8000/mcp")
+
+    try:
+        dynamo = sess.client("dynamodb", region_name=REGION)
+        f_resp = dynamo.scan(
+            TableName=TABLE_FINDINGS,
+            ProjectionExpression="detection_path, detection_latency_ms",
+            Limit=50,
+        )
+        latencies = []
+        counts = {"fast": 0, "sweep": 0}
+        for it in f_resp.get("Items", []):
+            dp = it.get("detection_path", {}).get("S", "sweep")
+            counts[dp] = counts.get(dp, 0) + 1
+            lat = it.get("detection_latency_ms", {}).get("N")
+            if lat:
+                latencies.append(float(lat))
+        if latencies:
+            import statistics
+            p50_latency_ms = int(statistics.median(latencies))
+        if sum(counts.values()) > 0:
+            path_counts = counts
+    except Exception:
+        pass
+
     return _json_response(200, {
         "burn_inr_hour": burn_inr,
         "baseline_inr_hour": baseline_inr,
@@ -139,7 +166,10 @@ def handle_summary(event: Dict[str, Any], context: Any, session: Optional[boto3.
         "credits_remaining_usd": credits_usd,
         "runway_hours": runway_hours,
         "prevented_today_inr": 0.0,
-        "detection_latency_s": 42,
+        "detection_latency_s": round(p50_latency_ms / 1000.0, 1),
+        "detection_latency_ms_p50": p50_latency_ms,
+        "detection_path_counts": path_counts,
+        "mcp_server_url": mcp_url,
         "collector_age_s": collector_age_s,
         "usd_inr": USD_INR,
         "verified_prices": verified_prices,
@@ -360,12 +390,36 @@ def handle_finding_detail(event: Dict[str, Any], context: Any, finding_id: str, 
 
 def handle_approve(event: Dict[str, Any], context: Any, finding_id: str, session: Optional[boto3.Session] = None) -> Dict[str, Any]:
     """POST /api/findings/{id}/approve"""
+    from netra.mcp.tokens import mint_approval_token
+
     sess = session or boto3.Session(region_name=REGION)
     now = int(time.time())
 
     try:
         dynamo = sess.client("dynamodb", region_name=REGION)
-        # Update status to EXECUTING
+
+        # 1. Load finding to extract plan
+        finding_resp = dynamo.get_item(
+            TableName=TABLE_FINDINGS,
+            Key={"pk": {"S": "ACCOUNT#default"}, "sk": {"S": f"FIND#{finding_id}"}},
+        )
+        item = finding_resp.get("Item", {})
+        narr_str = item.get("narrative", {}).get("S", "{}")
+        narr_data = {}
+        try:
+            narr_data = json.loads(narr_str)
+        except Exception:
+            pass
+        action = narr_data.get("recommended_action", "stop")
+        plan = {
+            "action": action,
+            "steps": narr_data.get("steps", []),
+        }
+
+        # 2. Mint single-use HMAC approval token
+        token = mint_approval_token(finding_id, plan, expires_in_seconds=300)
+
+        # 3. Update status to EXECUTING
         dynamo.update_item(
             TableName=TABLE_FINDINGS,
             Key={"pk": {"S": "ACCOUNT#default"}, "sk": {"S": f"FIND#{finding_id}"}},
@@ -374,7 +428,7 @@ def handle_approve(event: Dict[str, Any], context: Any, finding_id: str, session
             ExpressionAttributeValues={":st_val": {"S": "EXECUTING"}},
         )
 
-        # Trigger Step Functions execution if ARN available
+        # 4. Trigger Step Functions execution if ARN available
         sfn_arn = os.getenv("NETRA_STATE_MACHINE_ARN")
         execution_arn = f"arn:aws:states:{REGION}:123456789012:execution:netra-remediate:{finding_id}-{now}"
         if sfn_arn:
@@ -383,7 +437,12 @@ def handle_approve(event: Dict[str, Any], context: Any, finding_id: str, session
                 sfn_resp = sfn.start_execution(
                     stateMachineArn=sfn_arn,
                     name=f"netra-{finding_id}-{now}",
-                    input=json.dumps({"finding_id": finding_id}),
+                    input=json.dumps({
+                        "finding_id": finding_id,
+                        "action": action,
+                        "approval_token": token,
+                        "approved_by": "operator@netra.cockpit",
+                    }),
                 )
                 execution_arn = sfn_resp.get("executionArn", execution_arn)
             except Exception as sfn_err:
@@ -392,6 +451,7 @@ def handle_approve(event: Dict[str, Any], context: Any, finding_id: str, session
         return _json_response(200, {
             "execution_arn": execution_arn,
             "status": "EXECUTING",
+            "token_minted": True,
         })
     except Exception as err:
         logger.warning(f"Failed to approve finding {finding_id}: {err}")

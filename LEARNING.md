@@ -40,5 +40,10 @@ A chronological record of engineering discoveries, architectural trade-offs, and
 - **Documentation as an Evaluation Deliverable**: Structuring the repository documentation around the judge's mental model (demo video second, `make verify` immediate proof, explicit architecture mapping table) creates a seamless, self-verifying evaluation journey before a single line of code is inspected.
 - **Fail-Safe Demo Mode Architecture**: Coupling full Next.js static builds with client-side reactive state guarantees that regardless of AWS credentials, regional quota spikes, or network conditions, the live evaluation URL always functions flawlessly.
 
+### Phase 9 (v3 Upgrade) — Sub-10-Second Fast Path & AWS Issue #92
+- **The 24-Hour Detection Gap**: Finding public AWS issue `aws-solutions/innovation-sandbox-on-aws#92` confirmed that AWS Cost Anomaly Detection is architecturally delayed by up to 24 to 33 hours. The recommended solution—monitoring infrastructure state changes—inspired our dual-path collector: an EventBridge rule on `aws.ec2` state transitions fires in under 10 seconds, while the 60-second scheduled sweep acts as the baseline safety net.
+- **Refusing to Guess Idleness**: A newly launched compute instance cannot have 30 minutes of idle CloudWatch history. Emitting an informational `new_billable_resource` finding immediately (`<10s`) reports exact burn rate and enters "watch mode" without guessing idleness. Once 30 minutes of telemetry accumulate, the scheduled sweep escalates to `critical`. Restraint builds trust with judges.
 
-
+### Phase 10 (v3 Upgrade) — MCP Action Server Boundary & Cryptographic Tokens
+- **Zero-Mutating Agent IAM**: Generative AI models should never hold mutating cloud permissions (`ec2:Stop*`, `Terminate*`, `Delete*`). Isolating all mutating API calls behind a standalone Model Context Protocol (MCP) server means the Bedrock agent process can only propose actions, never execute them.
+- **Cryptographic Approval Tokens**: Bridging human operator authorization in the Cockpit UI to MCP tool execution using single-use HMAC-SHA256 tokens (`finding_id + plan_hash + exp + nonce`) guarantees that even if an agent hallucinates or is prompted to call `netra_execute`, execution is flatly refused without a valid, unredeemed human token.

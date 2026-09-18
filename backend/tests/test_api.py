@@ -64,6 +64,8 @@ def test_get_summary(mock_session):
     assert "credits_remaining_usd" in body
     assert "runway_hours" in body
     assert "usd_inr" in body
+    assert "detection_latency_ms_p50" in body
+    assert "detection_path_counts" in body
     assert body["usd_inr"] == 88.50
 
 
@@ -143,6 +145,7 @@ def test_post_finding_approve(mock_session):
     body = json.loads(resp["body"])
     assert body["status"] == "EXECUTING"
     assert "execution_arn" in body
+    assert body.get("token_minted") is True
 
 
 def test_post_finding_dismiss(mock_session):

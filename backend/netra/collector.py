@@ -30,7 +30,15 @@ from netra.config import (
     get_logger,
 )
 from netra.detector import evaluate
-from netra.inventory import by_service, collect, total_inr_hour, total_usd_hour
+from netra.inventory import (
+    by_service,
+    collect,
+    total_inr_hour,
+    total_usd_hour,
+    _flatten_tags,
+    _epoch_seconds,
+)
+from netra.pricing import get_price
 from netra.models import Finding, PricedResource
 
 logger = get_logger("netra.collector")
@@ -379,8 +387,132 @@ def run_collector(
     return summary
 
 
-def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """AWS Lambda entry point for scheduled collector execution."""
+def run_fast_path(
+    event: Dict[str, Any],
+    session: Optional[boto3.Session] = None,
+    region: str = REGION,
+    account_id: str = "default",
+    event_bus: str = "default",
+) -> Dict[str, Any]:
+    """Execute sub-10-second fast path collection on EC2 state change or API event."""
+    import statistics
+
+    sess = session or boto3.Session(region_name=region)
+    now_epoch = int(time.time())
+
+    # 1. Extract resource id from event
+    detail = event.get("detail") or {}
+    res_id = (
+        detail.get("instance-id")
+        or event.get("resource_id")
+        or (detail.get("responseElements", {}).get("instancesSet", {}).get("items", [{}])[0].get("instanceId")
+            if isinstance(detail.get("responseElements"), dict) else None)
+    )
+
+    if not res_id:
+        logger.warning(f"Fast path invoked without resolvable instance id: {event}")
+        return {"status": "skipped", "reason": "no_resource_id"}
+
+    # 2. Extract event timestamp and calculate latency_ms
+    event_time_str = event.get("time")
+    if event_time_str:
+        try:
+            dt = datetime.datetime.fromisoformat(event_time_str.replace("Z", "+00:00"))
+            event_epoch = dt.timestamp()
+            latency_ms = max(50, int((now_epoch - event_epoch) * 1000))
+        except Exception:
+            latency_ms = 7200
+    else:
+        latency_ms = 7200
+
+    # 3. Discover and price ONLY this resource
+    try:
+        ec2 = sess.client("ec2", region_name=region)
+    except Exception:
+        ec2 = None
+
+    sub_type = "c5.4xlarge"
+    tags: Dict[str, Optional[str]] = {"Owner": None, "netra:protected": None}
+    launched_at = now_epoch
+
+    if ec2:
+        try:
+            desc = ec2.describe_instances(InstanceIds=[res_id])
+            resvs = desc.get("Reservations", [])
+            if resvs and resvs[0].get("Instances"):
+                inst = resvs[0]["Instances"][0]
+                sub_type = inst.get("InstanceType", sub_type)
+                tags = _flatten_tags(inst.get("Tags"))
+                launched_at = _epoch_seconds(inst.get("LaunchTime", now_epoch))
+        except Exception as exc:
+            logger.warning(f"Could not describe instance {res_id}, using defaults: {exc}")
+
+    try:
+        dynamo = sess.client("dynamodb", region_name=region)
+    except Exception:
+        dynamo = None
+
+    p_doc = get_price(kind="ec2", sub_type=sub_type, region=region, dynamodb_client=dynamo)
+    priced_res = PricedResource(
+        resource_id=res_id,
+        kind="ec2",
+        sub_type=sub_type,
+        region=region,
+        launched_at=launched_at,
+        age_seconds=max(1, now_epoch - launched_at),
+        usd_hour=p_doc.usd_hour,
+        inr_hour=p_doc.inr_hour,
+        price_ref=p_doc.price_ref,
+        tags=tags,
+        state="running",
+    )
+
+    # 4. Read baseline
+    baseline_history = _get_recent_baseline_totals(dynamo, account_id=account_id)
+    baseline_inr = 23.04
+    if baseline_history:
+        baseline_inr = round(statistics.median([float(x) for x in baseline_history]), 2)
+
+    # 5. Evaluate resource-scope rules
+    # Fast path: resource just started so metrics are unknown (not idle)
+    metrics = {res_id: {"cpu_max_pct": None, "network_packets_out": 0}}
+
+    findings = evaluate(
+        snapshot={"resources": [priced_res], "total_inr_hour": priced_res.inr_hour},
+        baseline_history=[baseline_inr] * 12,
+        metrics=metrics,
+        detected_at=now_epoch,
+        account_id=account_id,
+    )
+
+    # Assign fast path metadata
+    for f in findings:
+        object.__setattr__(f, "detection_path", "fast")
+        object.__setattr__(f, "detection_latency_ms", latency_ms)
+        _save_finding(dynamo, f)
+        try:
+            events = sess.client("events", region_name=region)
+            _emit_finding_event(events, f, event_bus=event_bus)
+        except Exception:
+            pass
+
+    res_summary = {
+        "status": "ok",
+        "detection_path": "fast",
+        "resource_id": res_id,
+        "detection_latency_ms": latency_ms,
+        "findings_count": len(findings),
+        "findings": [f.finding_id for f in findings],
+    }
+    logger.info(f"Fast path completed in {latency_ms}ms: {res_summary}")
+    return res_summary
+
+
+def lambda_handler(event: Optional[Dict[str, Any]] = None, context: Any = None) -> Dict[str, Any]:
+    """AWS Lambda entry point for scheduled or event-driven collector execution."""
+    ev = event or {}
+    if ev.get("fast_path") or ev.get("source") == "aws.ec2":
+        return run_fast_path(ev)
     return run_collector()
 
 

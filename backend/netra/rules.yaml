@@ -45,3 +45,12 @@ rules:
     all:
       - {field: inr_hour, operator: gt, value: 5}
       - {field: tags.Owner, operator: not_exists}
+
+  - id: new_billable_resource
+    label: "Newly launched high-burn billable resource"
+    severity: info
+    scope: resource
+    all:
+      - {field: inr_hour, operator: gt, value: 5}
+      - {field: age_seconds, operator: lte, value: 300}
+
