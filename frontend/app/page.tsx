@@ -81,6 +81,7 @@ export default function OverviewPage() {
           baselineInrHour={summary.baseline_inr_hour}
           multiple={summary.multiple}
           creditsRemainingUsd={summary.credits_remaining_usd}
+          creditsInitialUsd={summary.credits_initial_usd}
           runwayHours={summary.runway_hours}
           selectedRange={selectedRange}
           onRangeChange={setSelectedRange}

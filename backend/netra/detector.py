@@ -100,7 +100,7 @@ def evaluate(
     metrics: Optional[Dict[str, Dict[str, Any]]] = None,
     detected_at: Optional[int] = None,
     open_finding_resource_ids: Optional[Set[str]] = None,
-    credits_remaining_usd: float = 100.0,
+    credits_remaining_usd: float = 200.0,
     account_id: str = "default",
 ) -> List[Finding]:
     """Pure evaluation function computing deterministic Findings from snapshot and metrics.

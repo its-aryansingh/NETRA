@@ -374,6 +374,14 @@ def run_collector(
         _save_finding(dynamo, f)
         _emit_finding_event(events, f, event_bus=event_bus)
 
+    # 8. Emit CloudWatch custom metrics
+    try:
+        from netra.metrics import put_metric
+        put_metric("BurnRateINRPerHour", tot_inr, unit="None", session=sess, region=region)
+        put_metric("OpenFindings", len(new_findings) + len(open_ids), unit="Count", session=sess, region=region)
+    except Exception:
+        pass
+
     summary = {
         "status": "ok",
         "collected_at": now_epoch,
@@ -495,6 +503,13 @@ def run_fast_path(
             _emit_finding_event(events, f, event_bus=event_bus)
         except Exception:
             pass
+
+    # Emit CloudWatch fast-path latency metric
+    try:
+        from netra.metrics import put_metric
+        put_metric("DetectionLatencyMs", latency_ms, unit="Milliseconds", session=sess, region=region)
+    except Exception:
+        pass
 
     res_summary = {
         "status": "ok",

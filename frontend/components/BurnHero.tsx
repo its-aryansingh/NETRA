@@ -9,6 +9,7 @@ interface BurnHeroProps {
   baselineInrHour: number;
   multiple: number;
   creditsRemainingUsd: number;
+  creditsInitialUsd?: number;
   runwayHours: number;
   selectedRange: "6h" | "24h" | "7d";
   onRangeChange: (r: "6h" | "24h" | "7d") => void;
@@ -20,6 +21,7 @@ export default function BurnHero({
   baselineInrHour,
   multiple,
   creditsRemainingUsd,
+  creditsInitialUsd = 200.0,
   runwayHours,
   selectedRange,
   onRangeChange,
@@ -78,11 +80,11 @@ export default function BurnHero({
               className={`h-full rounded-full transition-all duration-500 ${
                 runwayHours < 24 ? "bg-[var(--alarm)]" : runwayHours < 72 ? "bg-[var(--amber)]" : "bg-[var(--mint)]"
               }`}
-              style={{ width: `${Math.min(100, Math.max(5, (runwayHours / 120) * 100))}%` }}
+              style={{ width: `${Math.min(100, Math.max(5, (creditsRemainingUsd / (creditsInitialUsd || 200)) * 100))}%` }}
             />
           </div>
           <div className="flex items-center justify-between text-[11px] text-[var(--text-3)] font-mono mt-1.5">
-            <span>{formatUSD(creditsRemainingUsd)} balance</span>
+            <span>{formatUSD(creditsRemainingUsd)} of {formatUSD(creditsInitialUsd)}</span>
             <span>Empty in ~{Math.round(runwayHours)}h</span>
           </div>
         </div>

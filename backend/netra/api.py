@@ -70,11 +70,11 @@ def _error_response(status_code: int, message: str, code: str = "ERROR") -> Dict
 # Route Handlers
 # -----------------------------------------------------------------------------
 
-def handle_summary(event: Dict[str, Any], context: Any, session: Optional[boto3.Session] = None) -> Dict[str, Any]:
+def handle_summary(event: Dict[str, Any], context: Any = None, session: Optional[boto3.Session] = None) -> Dict[str, Any]:
     """GET /api/summary"""
     sess = session or boto3.Session(region_name=REGION)
-    now = int(time.time())
-    credits_usd = float(os.getenv("NETRA_CREDITS_REMAINING_USD", "100.0"))
+    credits_initial_usd = float(os.getenv("NETRA_CREDITS_INITIAL_USD", "200.0"))
+    credits_usd = float(os.getenv("NETRA_CREDITS_REMAINING_USD", "200.0"))
 
     burn_inr = 0.0
     burn_usd = 0.0
@@ -163,6 +163,7 @@ def handle_summary(event: Dict[str, Any], context: Any, session: Optional[boto3.
         "baseline_inr_hour": baseline_inr,
         "multiple": multiple,
         "projected_month_inr": projected_month_inr,
+        "credits_initial_usd": credits_initial_usd,
         "credits_remaining_usd": credits_usd,
         "runway_hours": runway_hours,
         "prevented_today_inr": 0.0,

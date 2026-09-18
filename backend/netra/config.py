@@ -26,6 +26,13 @@ TABLE_PRICE_CACHE: str = os.getenv("NETRA_TABLE_PRICE_CACHE", "netra_price_cache
 TABLE_FINDINGS: str = os.getenv("NETRA_TABLE_FINDINGS", "netra_findings")
 TABLE_AUDIT_LOG: str = os.getenv("NETRA_TABLE_AUDIT_LOG", "netra_audit_log")
 
+# Notification & Plumbing Targets
+SNS_TOPIC_ARN: str = os.getenv("NETRA_SNS_TOPIC_ARN", "")
+
+# Initial and remaining hackathon credit allocation in USD ($200 basis)
+CREDITS_INITIAL_USD: float = float(os.getenv("NETRA_CREDITS_INITIAL_USD", "200.0"))
+CREDITS_REMAINING_USD: float = float(os.getenv("NETRA_CREDITS_REMAINING_USD", "200.0"))
+
 # Aliases and account defaults
 AUDIT_TABLE: str = TABLE_AUDIT_LOG
 FINDINGS_TABLE: str = TABLE_FINDINGS

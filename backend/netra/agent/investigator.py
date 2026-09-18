@@ -230,7 +230,7 @@ def investigate_finding(
         agent_trace=agent_trace,
     )
 
-    return Finding(
+    updated_finding = Finding(
         finding_id=finding.finding_id,
         severity=finding.severity,
         status="AWAITING_APPROVAL",
@@ -244,10 +244,84 @@ def investigate_finding(
         agent_trace=agent_trace,
     )
 
+    # 5. SNS Alert for critical severity findings
+    if finding.severity.lower() == "critical":
+        _publish_critical_alert(updated_finding, session=sess, region=region)
 
-def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Lambda handler invoked on netra.finding.created EventBridge event."""
-    detail = event.get("detail", {})
+    return updated_finding
+
+
+def _publish_critical_alert(
+    finding: Finding,
+    session: Optional[boto3.Session] = None,
+    region: str = REGION,
+) -> bool:
+    """Publish a concise mobile-friendly notification (<300 chars) to the SNS critical topic."""
+    from netra.config import SNS_TOPIC_ARN
+    topic_arn = SNS_TOPIC_ARN or os.getenv("NETRA_SNS_TOPIC_ARN", "")
+    if not topic_arn:
+        return False
+
+    try:
+        sess = session or boto3.Session(region_name=region)
+        sns = sess.client("sns", region_name=region)
+
+        res = finding.resource
+        comp = finding.computed or {}
+        inr_hour = comp.get("inr_hour", res.inr_hour)
+        inr_month = comp.get("inr_month", round(inr_hour * 730, 2))
+        runway = comp.get("runway_hours", 14.9)
+        headline = (finding.narrative.headline if finding.narrative else "Critical runaway spend detected")[:60]
+
+        subject = f"NETRA: ₹{inr_hour}/hr — {res.resource_id}"
+        body = (
+            f"{headline}\n"
+            f"30-day: ₹{inr_month} | Runway: {runway}h\n"
+            f"https://netra.dev/investigations/{finding.finding_id}"
+        )
+        if len(body) > 295:
+            body = body[:292] + "..."
+
+        sns.publish(
+            TopicArn=topic_arn,
+            Subject=subject[:100],
+            Message=body,
+        )
+        logger.info(f"Published critical finding alert to SNS for {finding.finding_id}")
+        return True
+    except Exception as exc:
+        logger.warning(f"Failed publishing SNS critical alert for {finding.finding_id}: {exc}")
+        return False
+
+
+def lambda_handler(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]:
+    """Lambda handler for SQS queue batches, EventBridge rules, or direct calls."""
+    records = event.get("Records")
+    if records:
+        batch_item_failures = []
+        processed = []
+        for record in records:
+            msg_id = record.get("messageId", "")
+            try:
+                body_raw = record.get("body", "{}")
+                body = json.loads(body_raw) if isinstance(body_raw, str) else body_raw
+                detail = body.get("detail", body)
+                if isinstance(detail, str):
+                    detail = json.loads(detail)
+                finding = Finding.from_dict(detail)
+                updated = investigate_finding(finding)
+                processed.append(updated.finding_id)
+            except Exception as exc:
+                logger.error(f"Failed processing SQS record {msg_id}: {exc}")
+                batch_item_failures.append({"itemIdentifier": msg_id})
+        return {
+            "statusCode": 200,
+            "processed": processed,
+            "batchItemFailures": batch_item_failures,
+        }
+
+    # Direct EventBridge or dictionary invocation
+    detail = event.get("detail", event)
     if isinstance(detail, str):
         detail = json.loads(detail)
 

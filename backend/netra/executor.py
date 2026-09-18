@@ -282,6 +282,14 @@ def stage_record_audit(
         ok=ok,
         error=error,
     )
+    # 3. Emit RecoveredINR metric
+    if ok and recovered > 0:
+        try:
+            from netra.metrics import put_metric
+            put_metric("RecoveredINR", float(recovered), unit="None", session=session)
+        except Exception:
+            pass
+
     logger.info("Stage 5 RecordAudit complete for %s (status=%s)", fid, new_status)
     return entry
 

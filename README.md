@@ -121,7 +121,7 @@ make demo-down   # Destroys stack completely to prevent spend
 | NETRA  Overview  Audit                [Live Collector: 12s ago]  [Account: 123456789012] |
 +-----------------------------------------------------------------------------------------+
 | CURRENT SPEND RATE · ap-south-1                                                         |
-| ₹89.59 / hr   [▲ 3.9× baseline (₹23.04/hr)]   Credit Runway: 14.9h [████░░░░░░] $100.00 |
+| ₹89.59 / hr   [▲ 3.9× baseline (₹23.04/hr)]   Credit Runway: 14.9h [████░░░░░░] $161.40 / $200.00 |
 +-----------------------------------------------------------------------------------------+
 | [ Spend Velocity Timeline: Area Chart with Step-Change Marker at t-41m ]               |
 |                                                                                         |
@@ -276,23 +276,21 @@ Mutations are strictly isolated behind the **Model Context Protocol (MCP)** boun
 
 ## Built on AWS
 
-NETRA is architected 100% natively on AWS serverless services:
+NETRA is architected natively across 6 of the 7 official WeMakeDevs × AWS hackathon track rows, with the 7th row (Containers) rejected on principled FinOps grounds:
 
-| AWS Service | Architectural Role | Technical Implementation |
+| Hackathon Track Row | Stack / Tools | NETRA Architecture & Implementation |
 |:---|:---|:---|
-| **AWS Lambda** | Microservices Engine | Python 3.12 handlers for collector, HTTP API router, Bedrock agent, and MCP actions. |
-| **Amazon DynamoDB** | Storage & State | 4 pay-per-request tables with TTLs on snapshots (7d) and price cache (24h). |
-| **Amazon Bedrock** | GenAI Narration | Claude 3.7 Sonnet (`apac.anthropic.claude-sonnet-4-5-20250929-v1:0`) at `temperature=0`. |
-| **AWS Step Functions** | Remediation Workflow | 5-stage state machine (`netra-remediate`) with retry policies and catch blocks. |
-| **Amazon EventBridge** | Real-Time Routing | State-change rules for <10s fast path and scheduled 60s sweep cron. |
-| **DynamoDB Streams** | Real-Time Push | Change data capture emitting new findings and snapshots instantly. |
-| **Amazon CloudWatch** | Utilization Metrics | Consolidated single batch `get_metric_data` queries reducing latency under 400ms. |
-| **AWS Price List API** | Pricing Source | Authoritative catalog fetches in `us-east-1` with canonical SHA-256 JSON hashing. |
-| **Amazon EC2** | Compute Observability | Real-time state tracking, DryRun checks, and lifecycle remediation (stop/terminate). |
-| **Amazon EBS** | Storage Observability | Unattached volume detection and safeguarding rollback snapshot creation. |
-| **Amazon VPC** | Network Observability | Idle NAT Gateway discovery and route table dependency analysis. |
-| **AWS SAM** | Infrastructure as Code | Reproducible serverless infrastructure deployment template. |
-| **AWS Amplify Hosting**| Frontend Delivery | Next.js 15 App Router production hosting with global edge delivery. |
+| **1. Agents and AI** | Bedrock · Strands Agents SDK | **Amazon Bedrock** (Claude 3.7 Sonnet at `temperature=0`) for natural-language root cause narration with zero-tolerance numeric validation. Multi-agent MCP orchestration via **Model Context Protocol (MCP)**. |
+| **2. Serverless** | Lambda · API Gateway · Step Functions · SAM | **AWS Lambda** (Python 3.12 microservices with zero cold-start dependencies), **Amazon API Gateway** (HTTP router), **AWS Step Functions** (`netra-remediate` 5-stage workflow), and **AWS SAM** for reproducible IaC. |
+| **3. Servers and runtimes** | EC2 · Amplify Hosting | **Amazon EC2** (monitored subject, dry-run safety verification, lifecycle remediation), **AWS Amplify Hosting** (Next.js 15 App Router deployment globally distributed via edge CloudFront points of presence). |
+| **4. Data and search** | DynamoDB · S3 | **Amazon DynamoDB** (4 on-demand pay-per-request tables: findings, snapshots, audit, price cache with automatic TTL pruning), **Amazon S3** for immutable remediation audit logs and pricing catalogue reference caches. |
+| **5. Auth and policy** | IAM · Cedar Guardrails · HMAC Tokens | **Zero-Mutating Agent IAM** (AI model possesses zero destructive actions), **Cedar-style deterministic policy guardrails** (`forbid_protected`, `forbid_dependents`, `forbid_unsnapshotted`), and cryptographic **HMAC-SHA256 human approval tokens** (5m TTL, single-use nonce). |
+| **6. The plumbing** | EventBridge · SQS · SNS · CloudWatch | **Amazon EventBridge** (sub-10s `aws.ec2` state change capture & 60s cron sweep), **Amazon SQS + DLQ** (`NetraFindingsQueue` with redrive to `NetraFindingsDLQ` on 3 retries), **Amazon SNS** (`netra-critical-findings` mobile push alerts for critical runaway spend), and **Amazon CloudWatch** (consolidated metric batching, custom `NETRA` namespace metrics, live 4-widget dashboard, and `netra-burn-rate-critical` alarm). |
+| **7. Containers and Kubernetes** | EKS · ECS · Fargate | **Deliberately empty on principled FinOps grounds** (see below). |
+
+### Why there are no containers here
+
+> NETRA's entire workload is a 60-second schedule, an event handler, and an HTTP API — a few seconds of compute per minute. Running an ECS service or an OpenSearch cluster around the clock to serve that would cost more than most of the waste NETRA is built to catch. We chose Lambda, DynamoDB on-demand, and S3 precisely because they cost nothing when nothing is happening. **Building a cost tool on always-on infrastructure would have been the first thing the tool complained about.**
 
 ---
 

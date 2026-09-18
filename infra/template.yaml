@@ -4,6 +4,12 @@ Description: >
   NETRA — Near-real-time Expenditure Tracking & Remediation Agent.
   WeMakeDevs × AWS · First Commit 2026 · Ship It track
 
+Parameters:
+  AlertEmail:
+    Type: String
+    Default: "alerts@netra.dev"
+    Description: "Email address for critical spend notifications via SNS"
+
 Globals:
   Function:
     Timeout: 60
@@ -17,6 +23,8 @@ Globals:
         NETRA_TABLE_FINDINGS: !Ref NetraFindingsTable
         NETRA_TABLE_AUDIT_LOG: !Ref NetraAuditLogTable
         NETRA_USD_INR: "88.50"
+        NETRA_CREDITS_INITIAL_USD: "200.0"
+        NETRA_CREDITS_REMAINING_USD: "200.0"
         NETRA_LOG_LEVEL: "INFO"
 
 Resources:
@@ -169,6 +177,66 @@ Resources:
                   - "CreateVolume"
                   - "CreateNatGateway"
 
+  # ----------------------------------------------------------------------------
+  # SNS & SQS Plumbing (Prompt K: Decoupled Queue with DLQ & Phone Alerting)
+  # ----------------------------------------------------------------------------
+
+  NetraCriticalFindingsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: netra-critical-findings
+      DisplayName: NETRA Critical Spend Alerts
+
+  NetraCriticalFindingsEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref NetraCriticalFindingsTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  NetraFindingsDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: netra-findings-dlq
+      MessageRetentionPeriod: 345600 # 4 days
+
+  NetraFindingsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: netra-findings-queue
+      VisibilityTimeout: 180
+      MessageRetentionPeriod: 345600 # 4 days
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt NetraFindingsDLQ.Arn
+        maxReceiveCount: 3
+
+  NetraFindingsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref NetraFindingsQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt NetraFindingsQueue.Arn
+
+  FindingCreatedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: netra-finding-created-rule
+      Description: "Routes netra.finding.created events to SQS findings queue"
+      EventPattern:
+        source:
+          - "netra.collector"
+        detail-type:
+          - "netra.finding.created"
+      Targets:
+        - Arn: !GetAtt NetraFindingsQueue.Arn
+          Id: "NetraFindingsQueueTarget"
+
   # Stub for Phase 4: Bedrock/Strands Investigator Agent
   InvestigatorFunction:
     Type: AWS::Serverless::Function
@@ -178,6 +246,9 @@ Resources:
       CodeUri: ../backend
       Handler: netra.agent.investigator.lambda_handler
       Timeout: 120
+      Environment:
+        Variables:
+          NETRA_SNS_TOPIC_ARN: !Ref NetraCriticalFindingsTopic
       Policies:
         - Statement:
             - Effect: Allow
@@ -194,15 +265,24 @@ Resources:
               Resource:
                 - !GetAtt NetraFindingsTable.Arn
                 - !Sub "${NetraFindingsTable.Arn}/index/*"
+            - Effect: Allow
+              Action:
+                - sns:Publish
+              Resource: !Ref NetraCriticalFindingsTopic
+            - Effect: Allow
+              Action:
+                - sqs:ReceiveMessage
+                - sqs:DeleteMessage
+                - sqs:GetQueueAttributes
+              Resource: !GetAtt NetraFindingsQueue.Arn
       Events:
-        FindingCreatedEvent:
-          Type: CloudWatchEvent
+        FindingsQueueEvent:
+          Type: SQS
           Properties:
-            Pattern:
-              source:
-                - "netra.collector"
-              detail-type:
-                - "netra.finding.created"
+            Queue: !GetAtt NetraFindingsQueue.Arn
+            BatchSize: 10
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
 
   # Stub for Phase 5: HTTP API Handler
   ApiFunction:
@@ -380,6 +460,103 @@ Resources:
                 - !GetAtt NetraBurnSnapshotsTable.Arn
                 - !GetAtt NetraPriceCacheTable.Arn
 
+  # ----------------------------------------------------------------------------
+  # CloudWatch Dashboard & Alarms (Prompt K: Telemetry & Critical Guardrails)
+  # ----------------------------------------------------------------------------
+
+  NetraCloudWatchDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: NETRA
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Spend Velocity (₹/hr)",
+                "metrics": [
+                  [ "NETRA", "BurnRateINRPerHour" ]
+                ],
+                "period": 60,
+                "stat": "Average",
+                "region": "${AWS::Region}",
+                "view": "timeSeries"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Detection Latency (ms)",
+                "metrics": [
+                  [ "NETRA", "DetectionLatencyMs", { "stat": "p50", "label": "p50" } ],
+                  [ "...", { "stat": "p99", "label": "p99" } ]
+                ],
+                "period": 60,
+                "region": "${AWS::Region}",
+                "view": "timeSeries"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Open Findings Count",
+                "metrics": [
+                  [ "NETRA", "OpenFindings" ]
+                ],
+                "period": 60,
+                "stat": "Maximum",
+                "region": "${AWS::Region}",
+                "view": "singleValue"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Recovered Spend (₹)",
+                "metrics": [
+                  [ "NETRA", "RecoveredINR" ]
+                ],
+                "period": 60,
+                "stat": "Sum",
+                "region": "${AWS::Region}",
+                "view": "singleValue"
+              }
+            }
+          ]
+        }
+
+  NetraBurnRateCriticalAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: netra-burn-rate-critical
+      AlarmDescription: "Alerts when account burn rate exceeds ₹300/hr for 2 consecutive minutes"
+      Namespace: NETRA
+      MetricName: BurnRateINRPerHour
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 300.0
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref NetraCriticalFindingsTopic
+
 Outputs:
   CollectorFunctionArn:
     Description: "ARN of the Collector Lambda"
@@ -408,3 +585,15 @@ Outputs:
   AuditLogTableArn:
     Description: "ARN of Audit Log DynamoDB Table"
     Value: !GetAtt NetraAuditLogTable.Arn
+  CriticalFindingsTopicArn:
+    Description: "ARN of the Critical Findings SNS Topic"
+    Value: !Ref NetraCriticalFindingsTopic
+  FindingsQueueArn:
+    Description: "ARN of the SQS Findings Queue"
+    Value: !GetAtt NetraFindingsQueue.Arn
+  FindingsDLQArn:
+    Description: "ARN of the SQS Dead-Letter Queue"
+    Value: !GetAtt NetraFindingsDLQ.Arn
+  DashboardName:
+    Description: "Name of the NETRA CloudWatch Dashboard"
+    Value: !Ref NetraCloudWatchDashboard
