@@ -96,6 +96,9 @@ make break
 
 ### 3. Deploy Standalone Judge Sandbox (`demo-stack/`)
 Deploy the reproducible test environment containing a runaway `c5.4xlarge`, orphaned EBS storage, and a `netra:protected` control instance:
+
+> ⚠️ **Cost Notice**: The demo sandbox stack burns **≈₹70/hr while running** ($0.79/hr). Always run `make demo-down` after testing to eliminate spend.
+
 ```bash
 make demo-up     # Deploys stack (≈₹70/hr while running)
 make demo-down   # Destroys stack completely to prevent spend

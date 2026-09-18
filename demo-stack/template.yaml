@@ -22,7 +22,9 @@ Resources:
         - Key: Name
           Value: netra-runaway-c5-4xlarge
         - Key: netra:demo
-          Value: runaway
+          Value: "true"
+        - Key: netra:managed
+          Value: "true"
         - Key: Environment
           Value: dev-unmonitored
 
@@ -37,7 +39,9 @@ Resources:
         - Key: Name
           Value: netra-orphan-ebs-100gb-1
         - Key: netra:demo
-          Value: orphaned-storage
+          Value: "true"
+        - Key: netra:managed
+          Value: "true"
 
   OrphanVolumeTwo:
     Type: AWS::EC2::Volume
@@ -49,7 +53,9 @@ Resources:
         - Key: Name
           Value: netra-orphan-ebs-100gb-2
         - Key: netra:demo
-          Value: orphaned-storage
+          Value: "true"
+        - Key: netra:managed
+          Value: "true"
 
   # 3. Protected Control Instance (proves policy guardrail denial)
   ProtectedControlInstance:
