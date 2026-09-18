@@ -1,0 +1,22 @@
+{
+  "baseline_history": [23.04],
+  "snapshot": {
+    "total_inr_hour": 3.75,
+    "resources": [
+      {
+        "resource_id": "vol-0987654321fedcba0",
+        "kind": "ebs",
+        "sub_type": "gp3",
+        "region": "ap-south-1",
+        "launched_at": 1789736877,
+        "age_seconds": 4041,
+        "usd_hour": 0.0424,
+        "inr_hour": 3.75,
+        "price_ref": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "tags": {"Owner": "data-team", "netra:protected": null},
+        "state": "available",
+        "meta": {"size_gb": 340}
+      }
+    ]
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "baseline_history": [
+    23.04, 23.04, 22.80, 23.04, 23.10,
+    23.04, 23.04, 23.04, 22.95, 23.04,
+    23.04, 23.04
+  ],
+  "snapshot": {
+    "total_inr_hour": 89.59,
+    "resources": [
+      {
+        "resource_id": "i-0base000000000001",
+        "kind": "ec2",
+        "sub_type": "t3.medium",
+        "region": "ap-south-1",
+        "launched_at": 1789700000,
+        "age_seconds": 40877,
+        "usd_hour": 0.0448,
+        "inr_hour": 3.96,
+        "price_ref": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "tags": {"Owner": "dev", "netra:protected": null},
+        "state": "running",
+        "meta": {"vpc_id": "vpc-001"}
+      },
+      {
+        "resource_id": "i-0a4f39c7b12e8d5a1",
+        "kind": "ec2",
+        "sub_type": "c5.4xlarge",
+        "region": "ap-south-1",
+        "launched_at": 1789740877,
+        "age_seconds": 2460,
+        "usd_hour": 0.752,
+        "inr_hour": 66.55,
+        "price_ref": "sha256:4a9f13c84a9f13c84a9f13c84a9f13c84a9f13c84a9f13c84a9f13c84a9f13c8",
+        "tags": {"Owner": null, "netra:protected": null},
+        "state": "running",
+        "meta": {"vpc_id": "vpc-002"}
+      },
+      {
+        "resource_id": "nat-0123456789abcdef0",
+        "kind": "nat",
+        "sub_type": "nat",
+        "region": "ap-south-1",
+        "launched_at": 1789720000,
+        "age_seconds": 20877,
+        "usd_hour": 0.056,
+        "inr_hour": 4.96,
+        "price_ref": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "tags": {"Owner": "infra", "netra:protected": null},
+        "state": "available",
+        "meta": {"vpc_id": "vpc-001"}
+      }
+    ]
+  }
+}

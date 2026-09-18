@@ -1,0 +1,345 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  NETRA — Near-real-time Expenditure Tracking & Remediation Agent.
+  WeMakeDevs × AWS · First Commit 2026 · Ship It track
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 512
+    Runtime: python3.12
+    Environment:
+      Variables:
+        AWS_REGION: !Ref "AWS::Region"
+        NETRA_TABLE_BURN_SNAPSHOTS: !Ref NetraBurnSnapshotsTable
+        NETRA_TABLE_PRICE_CACHE: !Ref NetraPriceCacheTable
+        NETRA_TABLE_FINDINGS: !Ref NetraFindingsTable
+        NETRA_TABLE_AUDIT_LOG: !Ref NetraAuditLogTable
+        NETRA_USD_INR: "88.50"
+        NETRA_LOG_LEVEL: "INFO"
+
+Resources:
+  # ----------------------------------------------------------------------------
+  # DynamoDB Storage Tables (Pay-per-request billing, TTL on transient records)
+  # ----------------------------------------------------------------------------
+
+  NetraBurnSnapshotsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: netra_burn_snapshots
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  NetraPriceCacheTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: netra_price_cache
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  NetraFindingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: netra_findings
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: detected_at
+          AttributeType: N
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: status-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: detected_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  NetraAuditLogTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: netra_audit_log
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+
+  # ----------------------------------------------------------------------------
+  # Lambda Functions
+  # ----------------------------------------------------------------------------
+
+  CollectorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: netra-collector
+      Description: Inventories active AWS resources, prices them, computes baseline, and detects anomalies
+      CodeUri: ../backend
+      Handler: netra.collector.lambda_handler
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ec2:DescribeInstances
+                - ec2:DescribeVolumes
+                - ec2:DescribeNatGateways
+                - cloudwatch:GetMetricData
+                - pricing:GetProducts
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:Query
+                - dynamodb:Scan
+              Resource:
+                - !GetAtt NetraBurnSnapshotsTable.Arn
+                - !GetAtt NetraPriceCacheTable.Arn
+                - !GetAtt NetraFindingsTable.Arn
+                - !Sub "${NetraFindingsTable.Arn}/index/*"
+            - Effect: Allow
+              Action:
+                - events:PutEvents
+              Resource: "*"
+      Events:
+        CollectorSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: "rate(1 minute)"
+            Name: netra-collector-schedule
+            Description: "Triggers NETRA collector every 60 seconds"
+
+  # Stub for Phase 4: Bedrock/Strands Investigator Agent
+  InvestigatorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: netra-investigator
+      Description: Strands investigation agent narrating detected anomalies with deterministic fallback
+      CodeUri: ../backend
+      Handler: netra.agent.investigator.lambda_handler
+      Timeout: 120
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:Converse
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+                - dynamodb:PutItem
+                - dynamodb:Query
+              Resource:
+                - !GetAtt NetraFindingsTable.Arn
+                - !Sub "${NetraFindingsTable.Arn}/index/*"
+      Events:
+        FindingCreatedEvent:
+          Type: CloudWatchEvent
+          Properties:
+            Pattern:
+              source:
+                - "netra.collector"
+              detail-type:
+                - "netra.finding.created"
+
+  # Stub for Phase 5: HTTP API Handler
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: netra-api
+      Description: REST / HTTP API routing queries for dashboard, findings, and approvals
+      CodeUri: ../backend
+      Handler: netra.api.lambda_handler
+      Timeout: 30
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:Query
+                - dynamodb:Scan
+                - dynamodb:UpdateItem
+              Resource:
+                - !GetAtt NetraBurnSnapshotsTable.Arn
+                - !GetAtt NetraPriceCacheTable.Arn
+                - !GetAtt NetraFindingsTable.Arn
+                - !Sub "${NetraFindingsTable.Arn}/index/*"
+                - !GetAtt NetraAuditLogTable.Arn
+      Events:
+        HttpApiCatchAll:
+          Type: HttpApi
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+
+  # Phase 7: Remediation Executor Lambda
+  ExecutorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: netra-executor
+      Description: Executes human-approved remediations with dry-run, snapshotting, and audit logging
+      CodeUri: ../backend
+      Handler: netra.executor.lambda_handler
+      Timeout: 60
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ec2:DescribeInstances
+                - ec2:DescribeVolumes
+                - ec2:DescribeNatGateways
+                - ec2:StopInstances
+                - ec2:TerminateInstances
+                - ec2:DeleteVolume
+                - ec2:CreateSnapshot
+                - ec2:DeleteNatGateway
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+                - dynamodb:PutItem
+              Resource:
+                - !GetAtt NetraFindingsTable.Arn
+                - !GetAtt NetraAuditLogTable.Arn
+
+  # Phase 7: Step Functions State Machine
+  NetraRemediateStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: netra-remediate
+      Definition:
+        Comment: "NETRA 5-Stage Human-Gated Remediation Workflow"
+        StartAt: Authorize
+        States:
+          Authorize:
+            Type: Task
+            Resource: !GetAtt ExecutorFunction.Arn
+            Parameters:
+              finding_id.$: "$.finding_id"
+              action.$: "$.action"
+              approved_by.$: "$.approved_by"
+              step: "authorize"
+            Catch:
+              - ErrorEquals: ["States.ALL"]
+                Next: FailAndAudit
+            Next: DryRun
+          DryRun:
+            Type: Task
+            Resource: !GetAtt ExecutorFunction.Arn
+            Parameters:
+              finding_id.$: "$.finding_id"
+              action.$: "$.action"
+              step: "dry_run"
+            Catch:
+              - ErrorEquals: ["States.ALL"]
+                Next: FailAndAudit
+            Next: Snapshot
+          Snapshot:
+            Type: Task
+            Resource: !GetAtt ExecutorFunction.Arn
+            Parameters:
+              finding_id.$: "$.finding_id"
+              action.$: "$.action"
+              step: "snapshot"
+            Catch:
+              - ErrorEquals: ["States.ALL"]
+                Next: FailAndAudit
+            Next: Act
+          Act:
+            Type: Task
+            Resource: !GetAtt ExecutorFunction.Arn
+            Parameters:
+              finding_id.$: "$.finding_id"
+              action.$: "$.action"
+              step: "act"
+            Catch:
+              - ErrorEquals: ["States.ALL"]
+                Next: FailAndAudit
+            Next: RecordAudit
+          RecordAudit:
+            Type: Task
+            Resource: !GetAtt ExecutorFunction.Arn
+            Parameters:
+              finding_id.$: "$.finding_id"
+              action.$: "$.action"
+              approved_by.$: "$.approved_by"
+              step: "record_audit"
+              ok: true
+            End: true
+          FailAndAudit:
+            Type: Task
+            Resource: !GetAtt ExecutorFunction.Arn
+            Parameters:
+              finding_id.$: "$.finding_id"
+              action.$: "$.action"
+              approved_by.$: "$.approved_by"
+              step: "record_audit"
+              ok: false
+            End: true
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ExecutorFunction
+
+Outputs:
+  CollectorFunctionArn:
+    Description: "ARN of the Collector Lambda"
+    Value: !GetAtt CollectorFunction.Arn
+  ApiFunctionArn:
+    Description: "ARN of the HTTP API Lambda"
+    Value: !GetAtt ApiFunction.Arn
+  ExecutorFunctionArn:
+    Description: "ARN of the Executor Lambda"
+    Value: !GetAtt ExecutorFunction.Arn
+  StateMachineArn:
+    Description: "ARN of the Remediation Step Functions State Machine"
+    Value: !GetAtt NetraRemediateStateMachine.Arn
+  BurnSnapshotsTableArn:
+    Description: "ARN of Burn Snapshots DynamoDB Table"
+    Value: !GetAtt NetraBurnSnapshotsTable.Arn
+  FindingsTableArn:
+    Description: "ARN of Findings DynamoDB Table"
+    Value: !GetAtt NetraFindingsTable.Arn
+  AuditLogTableArn:
+    Description: "ARN of Audit Log DynamoDB Table"
+    Value: !GetAtt NetraAuditLogTable.Arn

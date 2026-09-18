@@ -1,0 +1,47 @@
+version: 1
+rules:
+  - id: burn_step_change
+    label: "Burn rate stepped above baseline"
+    severity: critical
+    scope: account
+    all:
+      - {field: total_inr_hour, operator: gt_multiple_of, ref: baseline_inr_hour, value: 3}
+      - {field: delta_inr_hour, operator: gt, value: 20}
+
+  - id: idle_compute
+    label: "Compute running with no meaningful utilisation"
+    severity: critical
+    scope: resource
+    all:
+      - {field: kind, operator: eq, value: ec2}
+      - {field: state, operator: eq, value: running}
+      - {field: age_seconds, operator: gt, value: 1800}
+      - {field: cpu_max_pct, operator: lt, value: 5}
+      - {field: network_packets_out, operator: lt, value: 1000}
+    downgrade_to: warning
+    downgrade_when: {field: inr_hour, operator: lt, value: 50}
+
+  - id: orphaned_storage
+    label: "Volume detached and left behind"
+    severity: warning
+    scope: resource
+    all:
+      - {field: kind, operator: eq, value: ebs}
+      - {field: age_seconds, operator: gt, value: 3600}
+
+  - id: idle_nat
+    label: "NAT gateway processing no traffic"
+    severity: warning
+    scope: resource
+    all:
+      - {field: kind, operator: eq, value: nat}
+      - {field: bytes_out, operator: eq, value: 0}
+      - {field: age_seconds, operator: gt, value: 7200}
+
+  - id: untagged_spend
+    label: "Billable resource with no owner"
+    severity: info
+    scope: resource
+    all:
+      - {field: inr_hour, operator: gt, value: 5}
+      - {field: tags.Owner, operator: not_exists}
