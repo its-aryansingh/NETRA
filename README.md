@@ -223,7 +223,7 @@ Automated cost remediations can cause catastrophic outages if left ungoverned. N
 
 ### 2. Setup & Installation
 ```bash
-git clone https://github.com/your-username/netra.git
+git clone https://github.com/its-aryansingh/netra.git
 cd netra
 
 # Install Python backend & Next.js frontend dependencies

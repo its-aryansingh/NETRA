@@ -28,7 +28,7 @@ All contributors and community members are expected to uphold respectful, inclus
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-username/netra.git
+git clone https://github.com/its-aryansingh/netra.git
 cd netra
 
 # 2. Setup backend & frontend dependencies
