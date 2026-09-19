@@ -254,11 +254,12 @@ def verify_fast_path() -> Tuple[bool, str, Dict[str, Any]]:
     Check 7 (v3):
     - Fast path detection latency is under 10 seconds (measured from AWS event time).
     """
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     event = {
         "id": "evt-verify-001",
         "source": "aws.ec2",
         "detail-type": "EC2 Instance State-change Notification",
-        "time": "2026-09-19T01:00:00Z",
+        "time": now_iso,
         "detail": {
             "instance-id": "i-runaway-verify",
             "state": "running",
