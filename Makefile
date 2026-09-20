@@ -1,4 +1,4 @@
-.PHONY: setup deploy collect test verify break chaos demo-up demo-down demo-seed demo-reset help
+.PHONY: setup deploy collect test verify break chaos redteam demo-up demo-down demo-seed demo-reset help
 
 PYTHON ?= python
 
@@ -10,6 +10,7 @@ help:
 	@echo "  make collect    Execute the inventory collector once locally"
 	@echo "  make test       Run complete unit test suite across all modules"
 	@echo "  make verify     Execute the judge-facing verification suite (<2s proof)"
+	@echo "  make redteam    Execute adversarial red team evaluation (12 attacks across 4 tactics)"
 	@echo "  make break      Trigger runaway compute and prove sub-10s fast-path detection"
 	@echo "  make chaos      Run automated chaos and load testing suite (5 stages)"
 	@echo "  make demo-up    Deploy standalone demo stack (c5.4xlarge, orphaned EBS, protected)"
@@ -44,6 +45,10 @@ test:
 verify:
 	@echo "==> Running NETRA proof verification..."
 	PYTHONPATH=backend $(PYTHON) -m netra.verify
+
+redteam:
+	@echo "==> Running NETRA adversarial red team evaluation..."
+	PYTHONPATH=backend $(PYTHON) scripts/redteam.py
 
 break:
 	@echo "==> Injecting fault to demonstrate sub-10-second fast-path detection..."

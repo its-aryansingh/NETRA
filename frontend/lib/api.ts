@@ -15,7 +15,19 @@ import {
   PricedResourceItem,
 } from "./demo-data";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+const _RAW_BASE = process.env.NEXT_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_URL || "";
+
+function getApiBase(): string {
+  if (_RAW_BASE) return `${_RAW_BASE}/api`;
+  // In demo mode we never hit the network, so an empty base is fine
+  if (process.env.NEXT_PUBLIC_DEMO === "1" || process.env.NEXT_PUBLIC_DEMO !== "0") return "/api";
+  throw new Error(
+    "NEXT_PUBLIC_API_BASE is not set. " +
+    "Set it to your API Gateway URL, e.g. https://<id>.execute-api.ap-south-1.amazonaws.com"
+  );
+}
+
+const API_BASE = getApiBase();
 
 export function isDemoMode(): boolean {
   if (typeof window !== "undefined") {

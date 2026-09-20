@@ -6,6 +6,57 @@ interface InventoryTableProps {
   isLoading?: boolean;
 }
 
+function Sparkline({ history }: { history?: number[] }) {
+  if (!history || history.length < 3) {
+    return <span className="text-[var(--text-3)]">—</span>;
+  }
+
+  const minVal = Math.min(...history);
+  const maxVal = Math.max(...history);
+  const first = history[0];
+  const last = history[history.length - 1];
+
+  let strokeColor = "var(--text-3)";
+  if (first > 0) {
+    const pctChange = (last - first) / first;
+    if (pctChange > 0.05) strokeColor = "var(--ember)";
+    else if (pctChange < -0.05) strokeColor = "var(--mint)";
+  } else if (last > 0) {
+    strokeColor = "var(--ember)";
+  }
+
+  const points = history
+    .map((val, idx) => {
+      const x = ((idx / (history.length - 1)) * 64).toFixed(1);
+      const y = (maxVal === minVal ? 10 : 18 - ((val - minVal) / (maxVal - minVal)) * 16).toFixed(1);
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  return (
+    <div
+      className="inline-flex items-center justify-center w-full"
+      title={`1h spend trend: ₹${first.toFixed(2)} → ₹${last.toFixed(2)}/hr`}
+    >
+      <svg
+        width="64"
+        height="20"
+        viewBox="0 0 64 20"
+        className="overflow-visible inline-block"
+      >
+        <polyline
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          points={points}
+        />
+      </svg>
+    </div>
+  );
+}
+
 export default function InventoryTable({
   resources,
   isLoading = false,
@@ -45,6 +96,8 @@ export default function InventoryTable({
               <th className="pb-3 font-medium">Sub Type</th>
               <th className="pb-3 font-medium">State</th>
               <th className="pb-3 font-medium">Age</th>
+              <th className="pb-3 font-medium">Util</th>
+              <th className="pb-3 font-medium text-center w-[72px]" title="1-hour spend trend">1h</th>
               <th className="pb-3 font-medium text-right">Spend Rate</th>
               <th className="pb-3 font-medium pl-4">Hashed Provenance</th>
             </tr>
@@ -52,7 +105,7 @@ export default function InventoryTable({
           <tbody className="divide-y divide-[var(--line-soft)]">
             {resources.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-[var(--text-3)]">
+                <td colSpan={9} className="py-8 text-center text-[var(--text-3)]">
                   No billable resources running. Nothing to price.
                 </td>
               </tr>
@@ -83,6 +136,12 @@ export default function InventoryTable({
                     </td>
                     <td className="py-3 text-[var(--text-3)]">
                       {formatAge(res.age_seconds)}
+                    </td>
+                    <td className="py-3 text-[var(--text-3)]">
+                      {res.util ?? "—"}
+                    </td>
+                    <td className="py-3 w-[72px] text-center">
+                      <Sparkline history={res.history} />
                     </td>
                     <td className="py-3 text-right font-semibold text-[var(--text)]">
                       {formatINR(res.inr_hour)}/hr

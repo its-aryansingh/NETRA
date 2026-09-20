@@ -73,12 +73,12 @@ def validate(
         headline = narrative.headline
         paragraphs = narrative.narrative
         rec_action = narrative.recommended_action
-        evidence_list = narrative.evidence or (evidence or [])
+        evidence_list = evidence if evidence is not None else (narrative.evidence or [])
     else:
         headline = narrative.get("headline", "")
         paragraphs = narrative.get("narrative", [])
         rec_action = narrative.get("recommended_action", "none")
-        evidence_list = narrative.get("evidence") or (evidence or [])
+        evidence_list = evidence if evidence is not None else (narrative.get("evidence") or [])
 
     # Unpack finding
     if isinstance(finding, Finding):

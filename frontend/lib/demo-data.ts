@@ -16,6 +16,8 @@ export interface PricedResourceItem {
   tags: Record<string, string | null>;
   state: string;
   meta: Record<string, any>;
+  util?: string;
+  history?: number[];
 }
 
 export interface FindingItem {
@@ -60,19 +62,28 @@ export interface AuditEntry {
 const NOW = Math.floor(Date.now() / 1000);
 
 export const DEMO_SUMMARY = {
-  burn_inr_hour: 127.30,
+  burn_inr_hour: 412.80,
   baseline_inr_hour: 23.04,
-  multiple: 5.53,
-  projected_month_inr: 92929.0,
+  multiple: 17.92,
+  projected_month_inr: 301344.0,
   credits_initial_usd: 200.0,
   credits_remaining_usd: 161.40,
   runway_hours: 14.9,
   prevented_today_inr: 71921.8,
   approved_remediations_count: 5,
-  collector_age_s: 12,
+  collector_age_s: 8,
   usd_inr: 88.50,
   verified_prices: 5,
   total_prices: 5,
+  reported: {
+    inr_hour: 18.40,
+    usd_hour: 0.2079,
+    as_of_epoch: NOW - 50400,
+    staleness_seconds: 50400,
+    granularity: "HOURLY" as const,
+    available: true,
+    reason: null,
+  },
 };
 
 // 24h burn series with a sharp step change at t - 41 min
@@ -117,6 +128,8 @@ export const DEMO_RESOURCES: PricedResourceItem[] = [
     tags: { Owner: null, "netra:protected": null },
     state: "running",
     meta: { vpc_id: "vpc-0a1b2c3d", subnet_id: "subnet-09f1a", root_device: "/dev/xvda" },
+    util: "2.0%",
+    history: [0, 0, 0, 0, 0, 0, 0, 0, 15.0, 42.5, 66.55, 66.55, 66.55, 66.55, 66.55, 66.55, 66.55, 66.55, 66.55, 66.55, 66.55, 66.55, 66.55, 66.55],
   },
   {
     resource_id: "i-0prodapp000000001",
@@ -131,6 +144,8 @@ export const DEMO_RESOURCES: PricedResourceItem[] = [
     tags: { Owner: "team-core", Environment: "production" },
     state: "running",
     meta: { vpc_id: "vpc-0a1b2c3d", subnet_id: "subnet-09f1a" },
+    util: "48.2%",
+    history: [18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76, 18.76],
   },
   {
     resource_id: "i-0protected9999999",
@@ -145,6 +160,8 @@ export const DEMO_RESOURCES: PricedResourceItem[] = [
     tags: { Owner: "lead-architect", "netra:protected": "true" },
     state: "running",
     meta: { vpc_id: "vpc-0a1b2c3d" },
+    util: "1.5%",
+    history: [33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28, 33.28],
   },
   {
     resource_id: "vol-0987654321fedcba0",
@@ -159,6 +176,8 @@ export const DEMO_RESOURCES: PricedResourceItem[] = [
     tags: { Owner: "data-ml", "netra:protected": null },
     state: "available",
     meta: { size_gb: 340, iops: 3000, throughput: 125 },
+    util: "0 IOPS",
+    history: [3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75, 3.75],
   },
   {
     resource_id: "nat-0123456789abcdef0",
@@ -173,6 +192,8 @@ export const DEMO_RESOURCES: PricedResourceItem[] = [
     tags: { Owner: "infra", "netra:protected": null },
     state: "available",
     meta: { vpc_id: "vpc-0a1b2c3d", subnet_id: "subnet-09f1a" },
+    util: "0.1 KB/s",
+    history: [4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96, 4.96],
   },
 ];
 

@@ -10,6 +10,7 @@ export const metadata: Metadata = {
 };
 
 import TopBar from "@/components/TopBar";
+import BurnTape from "@/components/BurnTape";
 
 export default function RootLayout({
   children,
@@ -28,6 +29,7 @@ export default function RootLayout({
       </head>
       <body className="bg-[var(--ground)] text-[var(--text)] antialiased min-h-screen flex flex-col font-sans">
         <TopBar />
+        <BurnTape />
         <main className="flex-1">
           {children}
         </main>

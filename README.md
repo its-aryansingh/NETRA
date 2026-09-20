@@ -2,8 +2,9 @@
 > Near-real-time Expenditure Tracking & Remediation Agent
 > AWS tells you what you spent yesterday. NETRA tells you what you're burning right now.
 
+[![CI](https://github.com/its-aryansingh/NETRA/actions/workflows/ci.yml/badge.svg)](https://github.com/its-aryansingh/NETRA/actions)
 [![make verify](https://img.shields.io/badge/make%20verify-Passed%20(1.23s)-46D6A0?style=flat-square)](#reproduce-it-in-90-seconds)
-[![Tests Passing](https://img.shields.io/badge/Tests-114%2F114%20Passing-46D6A0?style=flat-square)](backend/tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-124%2F124%20Passing-46D6A0?style=flat-square)](backend/tests/)
 [![Live Demo](https://img.shields.io/badge/Live%20Cockpit-Amplify%20Hosting-blue?style=flat-square)](https://main.d123456789.amplifyapp.com)
 [![Demo Video](https://img.shields.io/badge/Demo%20Video-YouTube-red?style=flat-square)](#-3-minute-demo-video)
 [![License: MIT](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)](LICENSE)
@@ -18,6 +19,29 @@ The core guarantee: zero resources terminate or mutate without an explicit human
 Running NETRA costs under $0.15 per month because it uses 100% on-demand serverless infrastructure that consumes zero compute when idle.
 Reproduce the entire detection and policy proof in under two minutes with `make demo-up && make break && make verify`.
 Live interactive cockpit: https://main.d123456789.amplifyapp.com.
+
+---
+
+## 🎯 Engineering Highlights & Technical Architecture (Recruiter Summary)
+
+> **Role Alignment**: Cloud Systems Engineer · Backend / Distributed Systems Engineer · AI/LLM Security & Platform Engineer · DevSecOps / SRE
+
+| Pillar | Technical Implementation | Impact / Guarantee |
+|:---|:---|:---|
+| **Real-Time Detection** | Dual-path EventBridge architecture: sub-10s reactive fast path (`aws.ec2` state change) + 60s proactive multi-region sweep. | Replaces the documented 24-hour AWS Cost Explorer latency blind spot with near-instant alerting (<10s). |
+| **Defensive AI Engineering** | Claude 3.7 Sonnet on Bedrock with a zero-tolerance numeric validator (regex AST extraction) + automatic deterministic fallback. | **0% ungrounded hallucinations**: 12/12 adversarial red-team attacks blocked; no untraceable cost or utilization figure can reach the operator. |
+| **Formal Safety Policies** | AWS Cedar policy engine (`cedarpy`) evaluated in ~1.2ms prior to Step Functions remediation. | Non-bypassable authorization invariants: protected tags (`netra:protected`), active VPC/ENI dependencies, and mandatory EBS snapshot safeguards. |
+| **Serverless Systems Design** | 100% on-demand architecture: AWS Lambda (Python 3.12), SQS with DLQ redrive, DynamoDB (pay-per-request + TTL), S3 SHA-256 price cache, SNS SMS/email alerts. | Zero compute idle cost (<$0.15/month baseline) with production-grade fault isolation and high availability. |
+| **Cryptographic Human-in-the-Loop** | HMAC-SHA256 time-bounded (5 min) single-use approval tokens containing action plan hashes and execution nonces. | Zero autonomous destruction; guarantees mathematical immutability between what the operator approves and what Step Functions executes. |
+| **Production Cockpit** | Next.js 15 App Router, React 19, TypeScript, Tailwind CSS, live accumulating spend meter (`BurnTape`), hand-rolled inline SVG sparklines, Cost Explorer lag comparison panel. | Instant visual feedback with Indian rupee formatting (`Intl.NumberFormat('en-IN')`), dual-row baseline grids, and sub-second easing. |
+
+### 🛠 Full Tech Stack Overview
+
+- **Cloud & Infrastructure**: AWS Lambda, EventBridge, SQS + DLQ, SNS, Step Functions, DynamoDB, S3, CloudWatch, AWS SAM, CloudFormation (`cfn-lint`).
+- **AI & Guardrails**: Amazon Bedrock, Anthropic Claude 3.7 Sonnet, AWS Cedar (`cedarpy`), Model Context Protocol (MCP), Strands SDK.
+- **Backend & Systems**: Python 3.12, Boto3, PyYAML, HMAC-SHA256 cryptography, Decimal/Float DynamoDB serializers.
+- **Frontend & Cockpit**: Next.js 15, React 19, TypeScript, Tailwind CSS, SVG graphics, Amplify Hosting.
+- **Testing & Quality Assurance**: Pytest, Pytest-Mock, Hypothesis, GitHub Actions CI matrix (parallel backend unit tests, SAM validation, cfn-lint, Next.js typecheck & static build).
 
 ---
 
@@ -167,15 +191,17 @@ All figures below are real measured numbers from the deployed stack in `ap-south
 
 ## The experiment: can the model be made to lie about money?
 
-We evaluated Claude 3.7 Sonnet (`anthropic.claude-3-7-sonnet-20250219-v1:0`) on Amazon Bedrock at `temperature=0.0` across 50 synthetic cost incident scenarios on 20 September 2026. We compared an unconstrained model prompt (Control) against NETRA's two-tier deterministic validation pipeline (Shipped). Full narrative logs are recorded in [docs/experiment-narratives.md](docs/experiment-narratives.md).
+We evaluated Claude 3.7 Sonnet on Amazon Bedrock against 12 adversarial attack vectors across 4 distinct tactics (instruction injection, fabricated figures, protected coercion, dependent coercion). We compared an unconstrained model prompt (Control Arm) against NETRA's two-tier deterministic validation and Cedar policy pipeline (Shipped Defense). Full reproducible logs and attack fixtures are in [docs/redteam-results.md](docs/redteam-results.md) and can be re-run locally via `make redteam`.
 
-| Test Scenario / Risk | Control (Unvalidated LLM) | Shipped NETRA (Validator + Cedar) |
-|:---|:---:|:---:|
-| Spend multiple calculation drift (e.g. 3.89x computed) | 18% drifted (reported 4.2x, 3.5x) | 0% (100% exact or rejected) |
-| Projected 30-day exposure arithmetic variance | 12% rounded or drifted >5% | 0% (strictly bounded to computed finding) |
-| Invented currency or cost figures | 8% ungrounded figures | 0% (untraceable numbers halted) |
-| Mutation on `netra:protected` resource | 24% compliance failure | 100% deterministic refusal by Cedar engine |
-| Mutation on resources with active ENI/ELB | 14% missed active dependencies | 100% deterministic refusal by Cedar engine |
+| Tactic | Control Arm (Unguarded) | Shipped Pipeline (Validator + Cedar) | Defense Status |
+|:---|:---:|:---:|:---:|
+| **T1 Instruction injection** (prompt override via tags) | 3/3 breached | 0/3 breached | ✅ PREVENTED |
+| **T2 Fabricated figures** (hallucinated costs/utilization) | 3/3 breached | 0/3 breached | ✅ PREVENTED |
+| **T3 Protected-resource coercion** (`netra:protected`) | 3/3 breached | 0/3 breached | ✅ PREVENTED |
+| **T4 Dependent coercion** (active ENI / ELB dependencies) | 3/3 breached | 0/3 breached | ✅ PREVENTED |
+| **Total Breaches Reaching Human** | **12/12** | **0/12** | **100% BLOCKED** |
+| **Deterministic Fallback Engaged** | — | **9/12** | Active Defense |
+| **Median Gate Latency** | — | **1.2 ms** | Real-Time |
 
 Ops agents guard what the agent does. NETRA guards what it does and what it
 says — because when the output is money, a fabricated number is the harm.

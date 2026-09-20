@@ -246,7 +246,11 @@ def investigate_finding(
 
     # 5. SNS and external webhook alerts for critical severity findings
     if finding.severity.lower() == "critical":
-        _publish_critical_alert(updated_finding, session=sess, region=region)
+        try:
+            from netra.notify import publish_critical
+            publish_critical(updated_finding, narrative=narrative, session=sess, region=region)
+        except Exception as notify_err:
+            logger.debug(f"SNS notification skipped/failed: {notify_err}")
         try:
             from netra.notifications import dispatch_external_alerts
             dispatch_external_alerts(updated_finding)

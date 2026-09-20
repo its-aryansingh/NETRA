@@ -7,8 +7,11 @@ Description: >
 Parameters:
   AlertEmail:
     Type: String
-    Default: "alerts@netra.dev"
+    Default: ""
     Description: "Email address for critical spend notifications via SNS"
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
 
 Globals:
   Function:
@@ -209,6 +212,7 @@ Resources:
 
   NetraCriticalFindingsEmailSubscription:
     Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
     Properties:
       TopicArn: !Ref NetraCriticalFindingsTopic
       Protocol: email
@@ -269,13 +273,18 @@ Resources:
       Environment:
         Variables:
           NETRA_SNS_TOPIC_ARN: !Ref NetraCriticalFindingsTopic
+          NETRA_ALERT_TOPIC_ARN: !Ref NetraCriticalFindingsTopic
+          NETRA_DASHBOARD_URL: "https://main.d123456789.amplifyapp.com"
       Policies:
         - Statement:
             - Effect: Allow
               Action:
                 - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
                 - bedrock:Converse
-              Resource: "*"
+              Resource:
+                - !Sub "arn:aws:bedrock:*::foundation-model/*"
+                - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*"
             - Effect: Allow
               Action:
                 - dynamodb:GetItem
@@ -304,7 +313,23 @@ Resources:
             FunctionResponseTypes:
               - ReportBatchItemFailures
 
-  # Stub for Phase 5: HTTP API Handler
+  # Stub for Phase 5: HTTP API
+  NetraHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: "$default"
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowHeaders:
+          - content-type
+          - authorization
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        MaxAge: 300
+
   ApiFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -338,10 +363,15 @@ Resources:
               Action:
                 - states:StartExecution
               Resource: !Ref NetraRemediateStateMachine
+            - Effect: Allow
+              Action:
+                - ce:GetCostAndUsage
+              Resource: "*"
       Events:
         HttpApiCatchAll:
           Type: HttpApi
           Properties:
+            ApiId: !Ref NetraHttpApi
             Path: /{proxy+}
             Method: ANY
 
@@ -623,6 +653,9 @@ Resources:
         - !Ref NetraCriticalFindingsTopic
 
 Outputs:
+  ApiUrl:
+    Description: "HTTP API Gateway endpoint URL for the NETRA dashboard"
+    Value: !Sub "https://${NetraHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
   CollectorFunctionArn:
     Description: "ARN of the Collector Lambda"
     Value: !GetAtt CollectorFunction.Arn

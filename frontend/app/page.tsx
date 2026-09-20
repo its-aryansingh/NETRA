@@ -8,6 +8,7 @@ import MetricTile from "@/components/MetricTile";
 import InventoryTable from "@/components/InventoryTable";
 import FindingCard from "@/components/FindingCard";
 import DemoControls from "@/components/DemoControls";
+import LagPanel from "@/components/LagPanel";
 import {
   getSummary,
   getBurn,
@@ -116,6 +117,13 @@ export default function OverviewPage() {
         selectedRange={selectedRange}
         onRangeChange={setSelectedRange}
         isUnreachable={Boolean(summaryError)}
+      />
+
+      {/* Cost Explorer Lag Comparison Panel */}
+      <LagPanel
+        reported={summary?.reported}
+        liveInrHour={summary?.burn_inr_hour ?? 412.80}
+        collectorAgeS={collectorAgeS}
       />
 
       {/* Main Grid: 8 Cols (Charts, Metrics, Inventory) + 4 Cols (Anomalies Rail) */}

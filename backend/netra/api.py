@@ -75,6 +75,7 @@ def handle_summary(event: Dict[str, Any], context: Any = None, session: Optional
     sess = session or boto3.Session(region_name=REGION)
     credits_initial_usd = float(os.getenv("NETRA_CREDITS_INITIAL_USD", "200.0"))
     credits_usd = float(os.getenv("NETRA_CREDITS_REMAINING_USD", "200.0"))
+    now = int(time.time())
 
     burn_inr = 0.0
     burn_usd = 0.0
@@ -158,6 +159,22 @@ def handle_summary(event: Dict[str, Any], context: Any = None, session: Optional
     except Exception:
         pass
 
+    reported_burn: Dict[str, Any] = {
+        "inr_hour": 0.0,
+        "usd_hour": 0.0,
+        "as_of_epoch": now,
+        "staleness_seconds": 0,
+        "granularity": "HOURLY",
+        "available": False,
+        "reason": "error",
+    }
+    try:
+        from netra.costexplorer import get_reported_burn
+        dynamo = sess.client("dynamodb", region_name=REGION)
+        reported_burn = get_reported_burn(ddb_client=dynamo)
+    except Exception as ce_err:
+        logger.warning(f"Cost Explorer query failed for summary: {ce_err}")
+
     return _json_response(200, {
         "burn_inr_hour": burn_inr,
         "baseline_inr_hour": baseline_inr,
@@ -175,6 +192,7 @@ def handle_summary(event: Dict[str, Any], context: Any = None, session: Optional
         "usd_inr": USD_INR,
         "verified_prices": verified_prices,
         "total_prices": total_prices,
+        "reported": reported_burn,
     })
 
 
@@ -242,6 +260,49 @@ def handle_inventory(event: Dict[str, Any], context: Any, session: Optional[boto
         dynamo = sess.client("dynamodb", region_name=REGION)
         raw_resources = collect(session=sess, region=REGION, dynamodb_client=dynamo)
         resources = [r.to_dict() for r in raw_resources]
+
+        # Fetch last 24 burn snapshots to populate history
+        history_map: Dict[str, List[float]] = {r["resource_id"]: [] for r in resources}
+        try:
+            snap_resp = dynamo.query(
+                TableName=TABLE_BURN_SNAPSHOTS,
+                KeyConditionExpression="pk = :pk AND begins_with(sk, :sk_prefix)",
+                ExpressionAttributeValues={
+                    ":pk": {"S": "ACCOUNT#default"},
+                    ":sk_prefix": {"S": "TS#"},
+                },
+                ScanIndexForward=False,
+                Limit=24,
+            )
+            # Oldest first
+            snap_items = list(reversed(snap_resp.get("Items", [])))
+            for snap in snap_items:
+                snap_res_str = snap.get("resources", {}).get("S", "")
+                snap_lookup = {}
+                if snap_res_str:
+                    try:
+                        parsed = json.loads(snap_res_str)
+                        for item in parsed:
+                            if isinstance(item, dict) and "resource_id" in item:
+                                snap_lookup[item["resource_id"]] = float(item.get("inr_hour", 0.0))
+                    except Exception:
+                        pass
+                for r in resources:
+                    rid = r["resource_id"]
+                    history_map[rid].append(snap_lookup.get(rid, 0.0))
+        except Exception as snap_err:
+            logger.warning(f"Failed to query snapshot history for inventory: {snap_err}")
+
+        # Attach 24-point history array to each resource (zero-filled if missing points)
+        for r in resources:
+            rid = r["resource_id"]
+            pts = history_map.get(rid, [])
+            if len(pts) < 24:
+                # Pad with recent inr_hour or 0.0 to reach 24 points
+                fill_val = float(r.get("inr_hour", 0.0))
+                pts = [fill_val] * (24 - len(pts)) + pts
+            r["history"] = pts[-24:]
+
     except Exception as err:
         logger.warning(f"Failed to fetch inventory: {err}")
 
