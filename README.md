@@ -159,7 +159,7 @@ All figures below are real measured numbers from the deployed stack in `ap-south
 | Policy check and validator latency | 20 ms | Local Cedar evaluation + regex numeric validation |
 | Verification suite duration (`make verify`) | 1.23 s | Cryptographic proof harness (`netra.verify`) |
 | Backend test suite | 114 / 114 passed | Pytest suite execution time: 20.57s |
-| Projected monthly spend recovered in demo run | ₹48,576.00 | Measured on runaway `c5.4xlarge` (₹66.55/hr) |
+| Projected monthly spend recovered in demo run | ₹71,921.80 | Measured across 5 remediation actions in demo session |
 | Demo stack running cost | ₹70.00/hr ($0.79/hr) | CloudFormation demo stack measured burn |
 | Native AWS Cost Explorer detection delay | 24 to 33 hours | Documented in `aws-solutions/innovation-sandbox-on-aws#92` |
 

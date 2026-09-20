@@ -28,7 +28,7 @@ A second-by-second rehearsal and recording guide for the 3-minute hackathon vide
 ### [1:10 – 1:40] The Needle Moves & Autonomous Investigation
 - **Visual**: NETRA dashboard counts up from ₹23.04/hr to ₹89.59/hr. The multiple badge lights up `3.9× baseline`. A critical Finding Card fades into the right rail. Click "Inspect & Remediate".
 - **Voiceover**:
-  > *"Within 42 seconds, NETRA's collector catches the step change. The spend velocity jumps 3.9× above the rolling median baseline. The Strands Agent investigator is immediately dispatched. But here is NETRA's core principle: the model never decides or calculates anything. The arithmetic is 100% deterministic. The agent simply gathers CloudWatch telemetry and narrates what was already proven."*
+  > *"Within seconds, NETRA's EventBridge fast path catches the state change — measured detection latency is 50 milliseconds. The spend velocity jumps 3.9× above the rolling median baseline. The Strands Agent investigator is immediately dispatched. But here is NETRA's core principle: the model never decides or calculates anything. The arithmetic is 100% deterministic. The agent simply gathers CloudWatch telemetry and narrates what was already proven."*
 
 ---
 
