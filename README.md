@@ -264,6 +264,8 @@ The deterministic fallback engine in `fallback.py` guarantees valid, publication
 nothing when nothing is happening.
 NETRA consumes zero Watts and zero billing cycles during idle periods, scaling strictly to zero between scheduled sweeps and lifecycle events.
 
+> 📄 **Complete Architectural Audit**: Read the full 6-pillar evaluation in [docs/well-architected.md](docs/well-architected.md), reviewed against the official AWS Well-Architected Tool questionnaire and FinOps Lens.
+
 ---
 
 ## The model never decides anything

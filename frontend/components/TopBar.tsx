@@ -5,10 +5,12 @@ import { usePathname } from "next/navigation";
 import useSWR from "swr";
 import { getSummary, isDemoMode, setDemoMode } from "@/lib/api";
 import { useEffect, useState } from "react";
+import WellArchitectedModal from "@/components/WellArchitectedModal";
 
 export default function TopBar() {
   const pathname = usePathname();
   const [demo, setDemo] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const { data: summary } = useSWR("/summary", getSummary, {
     refreshInterval: 5000,
@@ -79,8 +81,20 @@ export default function TopBar() {
             >
               Audit Ledger
             </Link>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="px-3 py-1.5 rounded-[7px] text-xs font-medium transition-colors text-[var(--text-2)] hover:text-[var(--text)] hover:bg-[var(--surface)] flex items-center gap-1.5"
+              title="AWS Well-Architected 6-Pillar & Formal Verification Inspector"
+            >
+              <svg className="w-3.5 h-3.5 text-[var(--mint)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+              <span>Well-Architected</span>
+            </button>
           </nav>
         </div>
+
+        <WellArchitectedModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
 
         {/* Right side status items */}
         <div className="flex items-center gap-3">
