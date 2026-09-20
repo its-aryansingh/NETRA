@@ -250,9 +250,52 @@ make demo-down   # Destroys stack completely to prevent spend
 +-----------------------------------------------------------------------------------------+
 ```
 
+### 3. Policy Denial State on Protected Instance
+*When Cedar policy rejects remediation (e.g. `forbid_protected`), the Approve button is replaced by an inline policy explanation block. Snooze and Dismiss remain accessible.*
+
+```
++-----------------------------------------------------------------------------------------+
+| < Overview / 01J8PROT000000000000000002                                                 |
+| [WARNING] [AWAITING_APPROVAL] [sweep · 60s] Detected 12m ago                            |
+| Idle t3.micro tagged netra:protected                                                    |
+| Target: i-0protected999  Type: t3.micro  Region: ap-south-1  [netra:protected]          |
+|                                     [Burning Now: ₹0.98/hr]  [30-Day: ₹715.00]          |
++-----------------------------------------------------------------------------------------+
+| AGENT ROOT CAUSE ANALYSIS                 | REMEDIATION CONTROL                         |
+| [claude-3.7-sonnet · verified]            | Recommended: terminate                      |
+|                                           | 30-Day Recovery: ₹715.00                    |
+| An idle t3.micro instance was detected    |                                             |
+| with 0% CPU utilization. However, the     | +-----------------------------------------+ |
+| resource carries tag netra:protected.     | | ! POLICY DENIAL · forbid_protected      | |
+|                                           | | Resource carries netra:protected tag.   | |
+| DryRun verification passes, but Cedar     | | Cedar policy forbids mutation on        | |
+| policy forbids automated mutation.        | | protected infrastructure.               | |
+|                                           | +-----------------------------------------+ |
+|                                           | [ Snooze 2h ]       [ Dismiss ]             |
++-----------------------------------------------------------------------------------------+
+```
+
+### 4. Audit Ledger & Rollback Interface
+*Immutable append-only DynamoDB ledger of every executed action with retained EBS snapshots, rollback IDs, and monthly spend recovered.*
+
+```
++-----------------------------------------------------------------------------------------+
+| NETRA  Overview  Audit                [Live Collector: 18s ago]  [Account: 123456789012] |
++-----------------------------------------------------------------------------------------+
+| AUDIT LEDGER · 7-DAY ROLLBACK WINDOW                                                    |
+| Total Recovered This Month: ₹71,921.00        Reversible Remediations: 4 Actions        |
++-----------------------------------------------------------------------------------------+
+| Timestamp   Action                 Target           Recovered/mo  Rollback Snapshot ID  |
+| 19 Sep 14:02 Terminate (snapshotted) i-0runaway768   ₹48,576.00    snap-04a1f8c92b (7d)  |
+| 19 Sep 11:24 Delete Unattached Vol vol-0e5a6c4d     ₹2,860.00     snap-0b8d7e12f0 (7d)  |
+| 18 Sep 22:15 Stop Idle GPU Instance  i-0g5xlarge88   ₹20,485.00    —                     |
++-----------------------------------------------------------------------------------------+
+```
+
 ---
 
 ## Architecture
+
 
 ```
   ┌─ EventBridge rule: aws.ec2 state-change ──────┐   < 10 seconds (Fast Path)
@@ -349,7 +392,38 @@ Mutations are strictly isolated behind the **Model Context Protocol (MCP)** boun
 
 ## Built on AWS
 
-NETRA is architected natively across 6 of the 7 official WeMakeDevs × AWS hackathon track rows, with the 7th row (Containers) rejected on principled FinOps grounds:
+### Agents and AI
+**Strands Agents SDK** · the investigator agent operating with read-only tools at `temperature=0`.  
+**Amazon Bedrock** · Claude 3.7 Sonnet for natural-language root-cause narration only — never decisions. Multi-agent tool access governed via the **Model Context Protocol (MCP)**.
+
+### Serverless
+**AWS Lambda** · lightweight Python 3.12 microservices for collector, investigator, api, executor, and MCP actions.  
+**Amazon API Gateway** · HTTP API routing for the real-time dashboard.  
+**AWS Step Functions** · `netra-remediate` 5-stage approval-gated state machine (`Authorize` → `PolicyCheck` → `DryRun` → `Snapshot` → `Act`).  
+**AWS SAM** · entire architecture declared and deployed as a reproducible infrastructure-as-code template.
+
+### Servers and runtimes
+**Amazon EC2** · the monitored subject and primary target for dry-run verification and remediation.  
+**AWS Amplify Hosting** · edge-deployed Next.js 15 cockpit served through CloudFront points of presence.
+
+### Data and search
+**Amazon DynamoDB** · 4 on-demand tables (snapshots, price cache, findings, append-only audit log) with automated TTL pruning.  
+**Amazon S3** · immutable price document provenance storage (`s3://<bucket>/prices/<sha256>.json`) keyed by SHA-256 digests.
+
+### Auth and policy
+**AWS Cedar** · deterministic policy engine (`cedarpy`) enforcing `@id("forbid_protected")`, `@id("forbid_dependents")`, and `@id("forbid_unsnapshotted")` where `forbid` unconditionally beats `permit`.  
+**HMAC-SHA256 Tokens** · cryptographic single-use human authorization tokens (5-minute TTL, plan hash, single-use nonce).
+
+### The plumbing
+**Amazon EventBridge** · the 60-second periodic inventory sweep and the sub-10s fast path on `aws.ec2` state transitions.  
+**Amazon SQS + DLQ** · `NetraFindingsQueue` with redrive to `NetraFindingsDLQ` (maxReceiveCount 3, 4-day retention) preventing dropped findings when Bedrock throttles.  
+**Amazon SNS** · `netra-critical-findings` topic dispatching SMS and email alerts directly to mobile devices for runaway spend anomalies.  
+**Amazon CloudWatch** · consolidated metric batching (`GetMetricData` <400ms), custom `NETRA` namespace metrics, live 4-widget dashboard, and `netra-burn-rate-critical` alarm.
+
+### Containers and Kubernetes
+Deliberately none. See "Why There Are No Containers Here".
+
+---
 
 | Hackathon Track Row | Stack / Tools | NETRA Architecture & Implementation |
 |:---|:---|:---|
@@ -465,6 +539,37 @@ npm run dev
 
 ---
 
+## Extending NETRA
+
+NETRA is designed with a data-driven, declarative architecture. Adding detection rules or new AWS resource types requires zero core engine refactoring.
+
+### Add a Detection Rule in 3 Steps
+1. **Define the Rule in `rules.yaml`**: Add a declarative entry specifying `id`, `scope` (`resource` or `account`), `severity`, and threshold:
+   ```yaml
+   - id: excessive_egress
+     scope: resource
+     severity: warning
+     field: network_out_bytes_per_hour
+     operator: ">"
+     value: 10737418240 # 10 GB/hr
+     action: alert
+     why: "Resource is transmitting >10 GB/hour outbound data transfer."
+   ```
+2. **Automatic Engine Ingestion**: `detector.py` automatically evaluates any rule defined in `rules.yaml` against normalized resource metrics.
+3. **Verify in 1 Second**:
+   ```bash
+   python -m pytest backend/tests/test_detector.py -k test_rules_as_data_dynamic_change
+   ```
+
+### Add an AWS Resource Type in 5 Steps
+1. **Define Unit Pricing Fallback**: Add fallback pricing to `FALLBACK_USD_HOUR` in `backend/netra/pricing.py`.
+2. **Configure Price List API Filter**: Add service query filters in `_fetch_from_pricing_api` in `backend/netra/pricing.py`.
+3. **Add Resource Discovery**: Implement the AWS describe call (e.g. `rds:DescribeDBInstances`) in `backend/netra/inventory.py`.
+4. **Normalize Resource Payload**: Map the discovered attributes to `PricedResource` in `backend/netra/collector.py`.
+5. **Declare Cedar Entity Schema**: Add resource attribute mappings in `policy/entities.json` and safety policies in `policy/netra.cedar`.
+
+---
+
 ## Project Structure
 
 ```
@@ -546,6 +651,13 @@ A chronological record of engineering discoveries is maintained in **[`LEARNING.
 - **GitHub**: [@its-aryansingh](https://github.com/its-aryansingh)
 - **Repository**: [its-aryansingh/NETRA](https://github.com/its-aryansingh/NETRA)
 - **Email**: `arajsingh0505@gmail.com`
+
+---
+
+## AI Tool Disclosure
+
+In compliance with official hackathon submission requirements:  
+*Codebase generated with Google Gemini and Claude from written architectural specifications; system architecture, security boundary design, Cedar policy guardrails, and verification by the author.*
 
 ---
 
