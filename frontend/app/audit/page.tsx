@@ -75,7 +75,7 @@ export default function AuditPage() {
         <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[14px] p-6 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs uppercase tracking-wider text-[var(--text-3)] font-mono">
-              Recovered Spend This Month
+              Recovered this month
             </span>
             <span className="px-2 py-0.5 rounded-[5px] text-[10px] font-mono bg-[var(--mint-bg)] text-[var(--mint)] border border-[var(--mint-line)] font-semibold">
               Verified
@@ -85,7 +85,7 @@ export default function AuditPage() {
             {formatINR(recoveredTotal)}
           </div>
           <div className="text-xs text-[var(--text-3)] font-mono">
-            Cumulative savings from approved agent remediations
+            Approved remediations
           </div>
         </div>
 
@@ -93,7 +93,7 @@ export default function AuditPage() {
         <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[14px] p-6 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs uppercase tracking-wider text-[var(--text-3)] font-mono">
-              Executed Actions
+              Executed actions
             </span>
             <span className="px-2 py-0.5 rounded-[5px] text-[10px] font-mono bg-[var(--surface-2)] text-[var(--text-2)] border border-[var(--line-soft)]">
               Human-Authorized
@@ -103,7 +103,7 @@ export default function AuditPage() {
             {actionCount}
           </div>
           <div className="text-xs text-[var(--text-3)] font-mono">
-            Instances stopped, terminated, or volumes deleted
+            Stopped, terminated, or deleted
           </div>
         </div>
 
@@ -111,7 +111,7 @@ export default function AuditPage() {
         <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[14px] p-6 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs uppercase tracking-wider text-[var(--text-3)] font-mono">
-              Rollbacks / Reverts
+              Rollbacks / reverts
             </span>
             <span className="px-2 py-0.5 rounded-[5px] text-[10px] font-mono bg-[var(--surface-2)] text-[var(--text-2)] border border-[var(--line-soft)]">
               Safety Net
@@ -121,7 +121,7 @@ export default function AuditPage() {
             {revertCount}
           </div>
           <div className="text-xs text-[var(--text-3)] font-mono">
-            Restored from EBS recovery snapshots within 7-day TTL
+            7-day snapshot retention
           </div>
         </div>
       </div>

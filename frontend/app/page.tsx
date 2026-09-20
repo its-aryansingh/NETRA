@@ -147,7 +147,7 @@ export default function OverviewPage() {
             />
             <MetricTile
               label="Detection latency"
-              value={summary?.detection_latency_s != null ? `${summary.detection_latency_s}s` : "—"}
+              value={summary?.detection_latency_s ? `${summary.detection_latency_s}s` : "—"}
               subtitle="Cost Explorer: up to 24h"
               variant="ember"
             />

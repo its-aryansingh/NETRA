@@ -145,6 +145,7 @@ export async function approveFinding(id: string): Promise<{ execution_arn: strin
       clientResources = clientResources.filter(r => r.resource_id !== f.resource.resource_id);
       clientSummary.burn_inr_hour = Math.max(23.04, clientSummary.burn_inr_hour - f.computed.inr_hour);
       clientSummary.prevented_today_inr += f.computed.inr_month;
+      clientSummary.approved_remediations_count = (clientSummary.approved_remediations_count || 5) + 1;
       clientSummary.multiple = Math.round((clientSummary.burn_inr_hour / clientSummary.baseline_inr_hour) * 100) / 100;
     }
     return { execution_arn: `arn:aws:states:ap-south-1:123456789012:execution:netra-remediate:${id}`, status: "EXECUTING" };
@@ -185,7 +186,7 @@ export async function snoozeFinding(id: string, hours: number = 2): Promise<{ st
 
 export async function getAudit(limit: number = 50): Promise<{ entries: AuditEntry[]; recovered_month_inr: number; action_count: number; revert_count: number }> {
   if (isDemoMode()) {
-    const totalRecovered = clientAudit.reduce((acc, it) => acc + (it.revert ? it.recovered_month_inr : it.recovered_month_inr), 0);
+    const totalRecovered = clientAudit.reduce((acc, it) => acc + (it.revert ? -Math.abs(it.recovered_month_inr) : it.recovered_month_inr), 0);
     return {
       entries: clientAudit.slice(0, limit),
       recovered_month_inr: totalRecovered,
@@ -204,7 +205,7 @@ export async function getAudit(limit: number = 50): Promise<{ entries: AuditEntr
       entries: clientAudit,
       recovered_month_inr: 71921.8,
       action_count: 5,
-      revert_count: 1,
+      revert_count: 0,
     };
   }
 }

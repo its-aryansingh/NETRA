@@ -21,10 +21,10 @@ export const CauseBars: React.FC<CauseBarsProps> = ({ causes }) => {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="font-['Familjen_Grotesk'] text-base font-bold text-[var(--text)] tracking-wide">
-            Recovered Spend by Anomaly Cause
+            Recovered spend by cause
           </h3>
           <p className="text-xs text-[var(--text-3)] mt-0.5">
-            Deterministic attribution aggregated from immutable audit ledger entries
+            Where the money came back from
           </p>
         </div>
         <div className="px-2.5 py-1 rounded-[7px] bg-[var(--surface-2)] border border-[var(--line-soft)] text-xs text-[var(--text-2)] font-mono">

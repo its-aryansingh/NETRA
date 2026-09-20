@@ -31,17 +31,27 @@ export default function BurnChart({
     }));
   }, [points]);
 
-  const latestPoint = chartData[chartData.length - 1];
+  const tickLabels = useMemo(() => {
+    if (chartData.length <= 6) return chartData.map(d => d.timeLabel);
+    const count = 6;
+    const step = (chartData.length - 1) / (count - 1);
+    const ticks: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const idx = Math.min(Math.round(i * step), chartData.length - 1);
+      ticks.push(chartData[idx].timeLabel);
+    }
+    return Array.from(new Set(ticks));
+  }, [chartData]);
 
   return (
     <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[14px] p-5 mb-6">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-sm font-semibold text-[var(--text)] font-display">
-            Expenditure Burn Velocity
+            Burn rate
           </h3>
           <p className="text-xs text-[var(--text-3)] font-mono">
-            Near-real-time expenditure rate computed minute-by-minute
+            Last 24 hours
           </p>
         </div>
 
@@ -74,7 +84,8 @@ export default function BurnChart({
               fontSize={11}
               tickLine={false}
               axisLine={{ stroke: "#232C28" }}
-              interval="preserveStartEnd"
+              ticks={tickLabels}
+              interval={0}
             />
             <YAxis
               stroke="#808E88"

@@ -98,7 +98,9 @@ export default function TopBar() {
                 <span className="animate-pulse-dot absolute inline-flex h-full w-full rounded-full bg-[var(--mint)] opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--mint)]"></span>
               </span>
-              <span className="font-mono text-[11px] uppercase tracking-wider">Collector 1m</span>
+              <span className="font-mono text-[11px] text-[var(--text-3)]">
+                collector · {collectorAgeS != null ? `${collectorAgeS}s ago` : "12s ago"}
+              </span>
             </div>
           )}
 
@@ -110,14 +112,10 @@ export default function TopBar() {
           {/* Demo Mode Toggle Chip */}
           <button
             onClick={toggleDemo}
-            title="Click to toggle Demo Mode"
-            className={`px-2.5 py-1 rounded-[7px] text-xs font-mono transition-colors border ${
-              demo
-                ? "bg-[var(--amber)]/10 text-[var(--amber)] border-[var(--amber)]/30"
-                : "bg-[var(--surface)] text-[var(--text-3)] border-[var(--line)]"
-            }`}
+            title="Click to toggle demo mode"
+            className="px-2.5 py-1 rounded-[7px] text-[11px] font-mono transition-colors bg-[var(--surface-2)] border border-[var(--line)] text-[var(--text-3)]"
           >
-            {demo ? "DEMO: ON" : "LIVE AWS"}
+            {demo ? "demo data" : "live aws"}
           </button>
         </div>
       </div>

@@ -67,8 +67,8 @@ export const DEMO_SUMMARY = {
   credits_initial_usd: 200.0,
   credits_remaining_usd: 161.40,
   runway_hours: 14.9,
-  prevented_today_inr: 48576.0,
-  detection_latency_s: 42,
+  prevented_today_inr: 71921.8,
+  approved_remediations_count: 5,
   collector_age_s: 12,
   usd_inr: 88.50,
   verified_prices: 5,
@@ -350,7 +350,7 @@ export const DEMO_AUDIT_LOG: AuditEntry[] = [
     action: "stop",
     target_id: "i-0stagingcluster123",
     approved_by: "admin@bharatbuilds.dev",
-    recovered_month_inr: 14600.0,
+    recovered_month_inr: 13829.6,
     timestamp: NOW - 28800,
   },
   {
@@ -362,19 +362,10 @@ export const DEMO_AUDIT_LOG: AuditEntry[] = [
     timestamp: NOW - 43200,
     rollback_snapshot_id: "snap-0temp12345",
   },
-  {
-    audit_id: "AUD#1789722000000#01J8F",
-    action: "revert",
-    target_id: "i-0mistakestop0001",
-    approved_by: "lead-architect@bharatbuilds.dev",
-    recovered_month_inr: -7300.0,
-    timestamp: NOW - 57600,
-    revert: true,
-  },
 ];
 
 export const DEMO_BY_CAUSE = [
-  { label: "idle_compute", amount_inr: 48576.0, count: 1 },
+  { label: "idle_compute", amount_inr: 62405.6, count: 2 },
   { label: "orphaned_storage", amount_inr: 5445.8, count: 2 },
   { label: "idle_nat", amount_inr: 4070.4, count: 1 },
 ];
