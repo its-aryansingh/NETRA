@@ -68,6 +68,8 @@ Resources:
           Value: netra-protected-control
         - Key: netra:protected
           Value: "true"
+        - Key: netra:managed
+          Value: "true"
         - Key: Owner
           Value: production-sre
 

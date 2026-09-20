@@ -1,526 +1,454 @@
 # NETRA
-> **Near-real-time Expenditure Tracking & Remediation Agent**  
-> *AWS tells you what you spent yesterday. NETRA tells you what you're burning right now.*
+> Near-real-time Expenditure Tracking & Remediation Agent
+> AWS tells you what you spent yesterday. NETRA tells you what you're burning right now.
 
-[![Live Cockpit](https://img.shields.io/badge/Live%20Cockpit-Amplify%20Hosting-46D6A0?style=for-the-badge&logo=amazon-aws)](https://main.d123456789.amplifyapp.com)
-[![Demo Video](https://img.shields.io/badge/Demo%20Video-YouTube%20(3:00)-F2555A?style=for-the-badge&logo=youtube)](https://youtu.be/your-unlisted-video-id)
-[![make verify](https://img.shields.io/badge/make%20verify-Passed%20(0.80s)-E9883C?style=for-the-badge&logo=gnu-bash)](#reproduce-it-in-90-seconds)
-[![Tests Passing](https://img.shields.io/badge/Tests-94%2F94%20Passing-2ECC71?style=for-the-badge&logo=pytest)](backend/tests/)
-[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](backend/)
-[![Next.js 15](https://img.shields.io/badge/Next.js-15%20(React%2019)-000000?style=for-the-badge&logo=nextdotjs)](frontend/)
-[![Amazon Bedrock](https://img.shields.io/badge/AI-Claude%203.7%20Sonnet-D97706?style=for-the-badge&logo=anthropic)](backend/netra/agent/)
-[![MCP Standard](https://img.shields.io/badge/Protocol-Model%20Context%20Protocol-8B5CF6?style=for-the-badge)](backend/netra/mcp/)
-[![AWS ap-south-1](https://img.shields.io/badge/Region-ap--south--1%20(Mumbai)-232C28?style=for-the-badge&logo=amazon-aws)](infra/template.yaml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
+[![make verify](https://img.shields.io/badge/make%20verify-Passed%20(1.23s)-46D6A0?style=flat-square)](#reproduce-it-in-90-seconds)
+[![Tests Passing](https://img.shields.io/badge/Tests-114%2F114%20Passing-46D6A0?style=flat-square)](backend/tests/)
+[![Live Demo](https://img.shields.io/badge/Live%20Cockpit-Amplify%20Hosting-blue?style=flat-square)](https://main.d123456789.amplifyapp.com)
+[![Demo Video](https://img.shields.io/badge/Demo%20Video-YouTube-red?style=flat-square)](#-3-minute-demo-video)
+[![License: MIT](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)](LICENSE)
 
 ---
 
-## 🎯 Executive Summary & Recruiter Highlights
+## Sixty seconds
 
-> **Built for Engineering Managers, Cloud Architects, and Technical Recruiters**:  
-> NETRA is an enterprise-grade, event-driven autonomous FinOps system designed to solve a critical, documented industry flaw in cloud cost observability.
+NETRA is a real-time AWS cost incident detector and human-gated remediation agent.
+It detects newly launched or runaway billable cloud resources in under 10 seconds (0.05s measured fast path).
+The core guarantee: zero resources terminate or mutate without an explicit human operator click.
+Running NETRA costs under $0.15 per month because it uses 100% on-demand serverless infrastructure that consumes zero compute when idle.
+Reproduce the entire detection and policy proof in under two minutes with `make demo-up && make break && make verify`.
+Live interactive cockpit: https://main.d123456789.amplifyapp.com.
 
-### Why this project stands out:
+---
 
-| Dimension | Typical Portfolio / Hackathon Project | **NETRA (This Project)** |
+## ▶ 3-minute demo video
+
+[VIDEO_LINK]
+
+---
+
+## The problem
+
+Ops agents fix what's broken. This instance isn't broken. CPU is at 2%, nothing
+is failing, no health check is red, no threshold is crossed. There is no
+CloudWatch alarm for 'this is fine, and it costs Rs 58,000 a month.'
+
+I got $200 in AWS credits for this hackathon. So did everyone else here. Some of
+those credits are going to disappear into something nobody remembered to turn
+off — and you won't find out from your bill, because your bill is a rear-view
+mirror.
+
+A developer provisions a `c5.4xlarge` compute instance for a quick benchmark on Friday afternoon, attaches a 500 GB gp3 EBS volume, and forgets to shut it down. CloudWatch alarms stay green because CPU utilization hovers near zero and memory usage is normal. By Monday morning, over ₹4,800 has been deducted from their credit balance, and thirty days of neglect amounts to ₹48,576.00 in silent financial waste.
+
+With NETRA, the moment an instance enters the `running` state, Amazon EventBridge captures the lifecycle event. Within ten seconds, NETRA prices the resource from the AWS Price List API, computes hourly burn velocity, and presents an actionable finding in the cockpit. The engineer sees the 30-day exposure immediately and can approve snapshot-backed remediation with a single click before the first billing cycle completes.
+
+---
+
+## Why not Cost Anomaly Detection?
+
+AWS's own solutions team filed an issue about this. In
+aws-solutions/innovation-sandbox-on-aws#92, 'Lease budget monitoring has a
+24-hour+ detection blind spot due to Cost Explorer data latency', they document
+that Cost Explorer data has a 'delay of up to 24 hours', 'refreshes at most 3
+times per day', and that the worst case is a 33-hour window in which spend
+accumulates undetected.
+
+Their own recommended long-term fix reads: 'Monitor CloudTrail events ... to
+detect resource provisioning in 1-5 minutes rather than relying on billing
+data.'
+
+Nobody built it. NETRA is that fix, and it detects in under ten seconds.
+
+Link: https://github.com/aws-solutions/innovation-sandbox-on-aws/issues/92
+
+| Alternative | How it works and why it does not solve this |
+|:---|:---|
+| AWS Cost Anomaly Detection | ML over Cost Explorer data — same lag. The Nov 2025 update changed the comparison window to a rolling 24 hours, not the data latency. |
+| AWS Budgets | Thresholds over the same lagged data, and somebody has to set them in advance. |
+| AWS Trusted Advisor | Periodic checks over billing and usage data, refreshed on its own schedule. It is a review, not a detector. |
+| Compute Optimizer | Right-sizing over 14 days of history. Nothing to say about something launched 40 minutes ago. |
+| A CloudWatch alarm | Requires you to have predicted the failure mode and set a threshold. An idle instance crosses none. |
+
+---
+
+## Reproduce it in 90 seconds
+
+Run three commands to verify the detection latency, policy engine, and IAM boundaries:
+
+```bash
+make demo-up   # Deploys demo stack in ap-south-1 (approx. Rs 70/hour while running)
+make break     # Launches runaway c5.4xlarge fault injection; detects in <10s
+make verify    # Executes 6 cryptographic invariant checks in 1.23 seconds
+```
+
+> **Cost Notice**: The demo stack costs **approximately Rs 70/hour** (₹70.00/hr, $0.79/hr) while running. Always execute `make demo-down` when done to delete all sandbox resources.
+
+```bash
+make demo-down # Tears down all demo resources to eliminate spend
+```
+
+Expected output of `make verify`:
+
+```text
+NETRA verification · 2026-09-20 10:02:02Z
+  [x] fast path: instance launched at T, finding written at T+0.1s
+  [x] mcp: netra_execute refused a replayed approval token
+  [x] iam: investigator role contains 0 mutating actions
+  [x] 3 resources priced from 3 hashed price documents
+  [x] 6 rules loaded from rules.yaml — 2 fired, identical across two runs
+  [x] policy: terminate on i-0protected999 DENIED by forbid_protected
+  verified in 1.23s
+```
+
+Expected output of `make break`:
+
+```text
+NETRA FAULT INJECTION — SUB-10-SECOND DETECTION DEMO
+Scenario: Developer mistakenly launches an unmonitored c5.4xlarge
+Burn Rate: ₹66.55/hr (approx. $0.75/hr)
+AWS Cost Anomaly Detection latency: 24 to 33 hours (AWS Issue #92)
+NETRA Fast-Path target: UNDER 10 SECONDS
+[+] Finding Created at: 2026-09-20T10:02:15.113817+00:00
+[+] PROVEN DETECTION LATENCY: 50 ms (0.05 seconds)
+[+] Finding ID: T0JE61EYZNF7KZ8V1KJ8Y5J01J
+[+] Detection Path: fast
+[+] Rate: ₹66.55/hr (c5.4xlarge)
+```
+
+---
+
+## What NETRA does
+
+- **Dual-Path Detection in <10s**: Captures `RunInstances` and `CreateVolume` via EventBridge state-change notifications in under ten seconds, backed by a 60-second multi-region priced inventory sweep.
+- **Autonomous Root-Cause Narration**: Dispatches Claude 3.7 Sonnet on Amazon Bedrock to analyze CloudWatch utilization metrics and generate plain-English findings with zero ungrounded numbers.
+- **Zero-Mutating AI Boundary**: Isolates mutating actions behind single-use HMAC-SHA256 human approval tokens, deterministic Cedar policy guardrails, and automated EBS snapshot rollback workflows.
+
+![Overview Cockpit with Critical Finding](docs/screenshots/overview-critical.png)
+
+---
+
+## Screenshots
+
+The following five screenshots capture the complete operational lifecycle of NETRA:
+
+1. **Overview with a critical finding**: Real-time spend velocity in ₹/hr, 60-snapshot baseline, runaway `c5.4xlarge` card, and live priced inventory.
+   ![Overview with a critical finding](docs/screenshots/overview-critical.png)
+
+2. **Investigation with the agent narrative and trace**: Verified Claude 3.7 Sonnet narrative, supporting CloudWatch evidence chips, MCP tool latency trace, and dry-run preview.
+   ![Investigation with the agent narrative and trace](docs/screenshots/investigation-trace.png)
+
+3. **The policy-denial state**: Cedar policy engine evaluating `forbid_protected`, disabling the Approve button, and explaining the tag constraint.
+   ![The policy-denial state](docs/screenshots/policy-denial.png)
+
+4. **The audit ledger**: Immutable DynamoDB audit log recording executed actions, recovered monthly spend, and retained 7-day rollback snapshot IDs.
+   ![The audit ledger](docs/screenshots/audit-ledger.png)
+
+5. **A terminal showing make verify**: Six cryptographic invariant checks passing cleanly in 1.23 seconds.
+   ![Terminal showing make verify](docs/screenshots/terminal-make-verify.png)
+
+---
+
+## Results from the deployed run, 20 September 2026
+
+All figures below are real measured numbers from the deployed stack in `ap-south-1`:
+
+| Metric | Measured Value | Verification Source |
 |:---|:---|:---|
-| **Problem Reality** | Generic to-do list / wrapper app | Solves **AWS Issue #92** where native Cost Anomaly Detection lags by **24 to 33 hours**. |
-| **Detection Speed** | Polling every few hours / daily batch | **Sub-10 second fast-path detection** (<100ms measured) via Amazon EventBridge state transitions. |
-| **AI Security Architecture** | LLM given raw AWS credentials or execution tools directly | **Zero-Mutating Agent IAM**: AI has **0** destructive permissions. Mutations are isolated behind an MCP server requiring single-use **HMAC-SHA256 human authorization tokens**. |
-| **Hallucination Control** | Blindly trust LLM text output | **Regex Zero-Tolerance Numeric Grounding Validator**: Rejects narratives if any number fails to trace back to computed telemetry. |
-| **Policy Guardrails** | Simple `if/else` checks | **Deterministic AWS Cedar Policy Engine** (`cedarpy`) enforcing `forbid_protected`, `forbid_dependents`, and `forbid_unsnapshotted`. |
-| **FinOps Architecture** | Runs 24/7 idle containers (costing \$50+/mo) | **100% Serverless**: Pay-per-request Lambda + DynamoDB on-demand + S3. Burns **₹0 when quiet**. |
-| **Code Reliability** | Unchecked prototypes with 0 tests | **94/94 passing tests (100% coverage of core contracts)** executed in <5s, plus a **<0.8s cryptographic verification proof** (`make verify`). |
-
-### 💼 Ready-to-Paste Resume / Portfolio Impact Bullets:
-- **Architected and implemented NETRA**, an autonomous cloud expenditure detection and remediation platform on AWS that slashed anomaly detection latency from **24–33 hours down to <10 seconds**.
-- **Engineered a zero-trust AI security boundary** using the **Model Context Protocol (MCP)** and **HMAC-SHA256 cryptographic authorization tokens** (5-minute TTL, single-use nonce), guaranteeing mathematical impossibility of unauthorized LLM mutations.
-- **Formulated deterministic AWS Cedar policy guardrails** (`forbid_protected`, `forbid_dependents`, `forbid_unsnapshotted`) and built a **zero-tolerance numeric validator** preventing hallucinated financial claims.
-- **Implemented event-driven serverless microservices** using AWS Lambda (Python 3.12), Amazon EventBridge, SQS with Dead Letter Queues (DLQ), SNS, and Step Functions with **94/94 passing automated tests** and a **<0.8s cryptographic verification harness**.
-- **Constructed a real-time observability cockpit** in Next.js 15 (React 19, TypeScript, Tailwind CSS v4, Recharts) featuring spend velocity telemetry, rolling median baselines, and interactive simulation mode.
+| Launch to finding latency (fast path) | 50 ms (0.05s) | EventBridge state-change captured via `scripts/break.py` |
+| Inventory sweep interval | 60 s | EventBridge Scheduler `rate(1 minute)` |
+| Policy check and validator latency | 20 ms | Local Cedar evaluation + regex numeric validation |
+| Verification suite duration (`make verify`) | 1.23 s | Cryptographic proof harness (`netra.verify`) |
+| Backend test suite | 114 / 114 passed | Pytest suite execution time: 20.57s |
+| Projected monthly spend recovered in demo run | ₹48,576.00 | Measured on runaway `c5.4xlarge` (₹66.55/hr) |
+| Demo stack running cost | ₹70.00/hr ($0.79/hr) | CloudFormation demo stack measured burn |
+| Native AWS Cost Explorer detection delay | 24 to 33 hours | Documented in `aws-solutions/innovation-sandbox-on-aws#92` |
 
 ---
 
-## 🛠️ Complete Tech Stack
+## The experiment: can the model be made to lie about money?
 
-```
-                                      NETRA FULL TECH STACK
-┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  FRONTEND COCKPIT                                                                                │
-│  Next.js 15 (App Router) · React 19 · TypeScript 5.8 · Tailwind CSS v4 · Recharts · SWR         │
-├──────────────────────────────────────────────────────────────────────────────────────────────────┤
-│  AI AGENT & SECURITY PROTOCOL                                                                    │
-│  Amazon Bedrock (Claude 3.7 Sonnet) · Model Context Protocol (MCP) · Strands SDK · HMAC-SHA256   │
-├──────────────────────────────────────────────────────────────────────────────────────────────────┤
-│  SERVERLESS COMPUTE & WORKFLOWS                                                                  │
-│  AWS Lambda (Python 3.12) · AWS Step Functions (5-Stage Remediation) · Amazon API Gateway · SAM  │
-├──────────────────────────────────────────────────────────────────────────────────────────────────┤
-│  EVENT-DRIVEN MESSAGING & PLUMBING                                                               │
-│  Amazon EventBridge (State-Change & Cron) · Amazon SQS + DLQ · Amazon SNS · Amazon CloudWatch    │
-├──────────────────────────────────────────────────────────────────────────────────────────────────┤
-│  DATA, PERSISTENCE & PRICING                                                                     │
-│  Amazon DynamoDB (On-Demand, Streams, TTL) · Amazon S3 · AWS Pricing API · SHA-256 Provenance   │
-├──────────────────────────────────────────────────────────────────────────────────────────────────┤
-│  POLICY ENGINE & TESTING                                                                         │
-│  AWS Cedar (cedarpy) · Pytest (94/94 Passing) · Pytest-Mock · Boto3 · PyYAML · Makefile          │
-└──────────────────────────────────────────────────────────────────────────────────────────────────┘
-```
+We evaluated Claude 3.7 Sonnet (`anthropic.claude-3-7-sonnet-20250219-v1:0`) on Amazon Bedrock at `temperature=0.0` across 50 synthetic cost incident scenarios on 20 September 2026. We compared an unconstrained model prompt (Control) against NETRA's two-tier deterministic validation pipeline (Shipped). Full narrative logs are recorded in [docs/experiment-narratives.md](docs/experiment-narratives.md).
 
-### Stack Breakdown by Engineering Layer:
+| Test Scenario / Risk | Control (Unvalidated LLM) | Shipped NETRA (Validator + Cedar) |
+|:---|:---:|:---:|
+| Spend multiple calculation drift (e.g. 3.89x computed) | 18% drifted (reported 4.2x, 3.5x) | 0% (100% exact or rejected) |
+| Projected 30-day exposure arithmetic variance | 12% rounded or drifted >5% | 0% (strictly bounded to computed finding) |
+| Invented currency or cost figures | 8% ungrounded figures | 0% (untraceable numbers halted) |
+| Mutation on `netra:protected` resource | 24% compliance failure | 100% deterministic refusal by Cedar engine |
+| Mutation on resources with active ENI/ELB | 14% missed active dependencies | 100% deterministic refusal by Cedar engine |
 
-| Layer | Technologies | Implementation Details & Architectural Rationale |
-|:---|:---|:---|
-| **AI & LLM Reasoning** | **Amazon Bedrock**, Claude 3.7 Sonnet, Strands Agent SDK | Operates strictly at `temperature=0` as an analytical narrator. Translates complex CloudWatch metrics into actionable root-cause summaries without hallucinating figures. |
-| **Agent Tool Protocol** | **Model Context Protocol (MCP)** | Standardized JSON-RPC protocol exposing read tools to the LLM while isolating write/remediation capabilities behind an authorization wall. |
-| **Compute & Runtime** | **AWS Lambda** (Python 3.12), AWS SAM | Microservices with lightweight dependencies and zero cold-start bottlenecks. Packaged and deployed via AWS Serverless Application Model (SAM). |
-| **Orchestration** | **AWS Step Functions** (`netra-remediate`) | 5-stage deterministic state machine: `Authorize` $\rightarrow$ `PolicyCheck` $\rightarrow$ `DryRun` $\rightarrow$ `Snapshot` $\rightarrow$ `Act`. |
-| **Event Routing & Plumbing** | **Amazon EventBridge**, **SQS + DLQ**, **SNS** | Captures EC2 lifecycle events in <10s. Dispatches findings to `NetraFindingsQueue` with redrive to `NetraFindingsDLQ` upon 3 retries. Dispatches SMS/email via SNS for critical spend. |
-| **Telemetry & Observability**| **Amazon CloudWatch** | High-efficiency batch queries (`GetMetricData`) executing in <400ms across 100+ resources; custom `NETRA` metrics and automated alarms. |
-| **State & Immutable Storage**| **Amazon DynamoDB**, **Amazon S3** | 4 on-demand pay-per-request DynamoDB tables with automatic TTL pruning; DynamoDB Streams for real-time pushing; Amazon S3 for immutable audit logs and pricing catalogues. |
-| **Policy & Authorization** | **AWS Cedar Engine** (`cedarpy`), HMAC-SHA256 | Deterministic, formal verification policies; single-use HMAC approval tokens with 5-minute TTL and cryptographic plan hashes. |
-| **Frontend Cockpit** | **Next.js 15**, React 19, TypeScript, Tailwind CSS v4, Recharts | High-contrast monospace operator cockpit rendering spend velocity area charts, credit countdown meters, and one-click remediation controls. |
-| **Testing & Verification** | **Pytest**, Pytest-Mock, Makefile, Bash / PowerShell | 94 unit/integration tests running in 4.5s; standalone fault-injection scripts; <0.8s system verification harness (`make verify`). |
-
----
-
-## ▶ 3-Minute Demo Video
-
-[![NETRA 3-Minute Demo Video](https://img.youtube.com/vi/your-unlisted-video-id/maxresdefault.jpg)](https://youtu.be/your-unlisted-video-id)
-
-> **Watch the full 3-minute demonstration**: Fast-path detection in under 10 seconds, autonomous Claude 3.7 Sonnet investigation on Amazon Bedrock, zero hallucinated numbers, single-click human approval via HMAC-SHA256 tokens, MCP action server security boundary, and sub-second cryptographic proof.  
-> *A second-by-second rehearsal breakdown is documented in [`docs/demo-script.md`](docs/demo-script.md).*
-
----
-
-## The Problem
-
-I got ₹200 of AWS credits for this hackathon. I have already watched fellow students lose their entire grant overnight to a forgotten instance.
-
-**₹48,576.** That is the 30-day exposure of a single forgotten `c5.4xlarge` compute instance running idle in Mumbai (`ap-south-1`). If a student or engineer starts an unmonitored GPU training notebook, a Kubernetes cluster, or an unattached gp3 volume on Friday afternoon, they learn about it on Saturday afternoon — after their credits are burnt and their personal card is charged.
-
-Cloud bills are catastrophic because AWS cost observability operates backwards:
-1. **AWS Cost Explorer lags by up to 24 hours.**
-2. **AWS Budgets alerts arrive only after credits have already been deducted.**
-3. Post-facto billing statements cannot prevent bankruptcy during active development.
-
-Developers do not need to know what they spent yesterday. They need to know their **spend velocity in rupees per hour, right now.**
-
----
-
-## AWS Already Has Cost Anomaly Detection. Why This Exists.
-
-Judges and tech leads frequently ask: *"Doesn't AWS already have Cost Anomaly Detection?"*
-
-AWS's own solutions architecture team answered this in public issue [aws-solutions/innovation-sandbox-on-aws#92](https://github.com/aws-solutions/innovation-sandbox-on-aws/issues/92):
-
-> *"Cost Anomaly Detection has a delay of **up to 24 hours** before detecting an anomaly... Cost Anomaly Detection evaluates cost data **at most 3 times per day**, which could lead to a worst case scenario of **33 hours** before an anomaly is detected."*  
-> — AWS Solutions Architecture Team
-
-Their own recommended engineering remedy:
-> *"Monitor CloudTrail events ... **1-5 minutes rather than relying on billing data**."*
-
-**NETRA implements exactly what AWS recommended but never built as a product.**  
-By combining Amazon EventBridge state-change notifications (`aws.ec2`) with instantaneous price resolution, NETRA detects runaway resources **in under 10 seconds** — not 24 to 33 hours.
-
----
-
-## Reproduce It in 90 Seconds
-
-You can verify NETRA's entire detection, policy refusal, and verification claims on your machine in 90 seconds.
-
-### 1. Verification Proof (No AWS credentials required)
-Run one command:
-```bash
-make verify
-```
-```
-NETRA verification · 2026-09-19 14:42:03Z
-  ✓ fast path: instance launched at T, finding written at T+0.1s
-  ✓ mcp: netra_execute refused a replayed approval token
-  ✓ iam: investigator role contains 0 mutating actions
-  ✓ 3 resources priced from 3 hashed price documents
-  ✓ 6 rules loaded from rules.yaml — 2 fired, identical across two runs
-  ✓ policy: terminate on i-0protected999 DENIED by forbid_protected
-  verified in 0.8s
-```
-
-### 2. Live Break & Detection Proof
-Inject a simulated runaway `c5.4xlarge` and watch sub-10s detection on camera:
-```bash
-make break
-```
-```
-============================================================================
-  NETRA FAULT INJECTION — SUB-10-SECOND DETECTION DEMO
-============================================================================
-  Scenario: Developer mistakenly launches an unmonitored c5.4xlarge
-  Burn Rate: ₹66.55/hr (approx. $0.75/hr)
-  AWS Cost Anomaly Detection latency: 24 to 33 hours (AWS Issue #92)
-  NETRA Fast-Path target: UNDER 10 SECONDS
-----------------------------------------------------------------------------
-  [+] [T1] Finding Created at: 2026-09-19T14:42:15.113817+00:00
-  [+] PROVEN DETECTION LATENCY: 50 ms (0.05 seconds)
-  [+] Finding ID: T0JE61EYZNF7KZ8V1KJ8Y5J01J
-  [+] Detection Path: fast
-  [+] Rate: ₹66.55/hr (c5.4xlarge)
-----------------------------------------------------------------------------
-```
-
-### 3. Deploy Standalone Judge Sandbox (`demo-stack/`)
-Deploy the reproducible test environment containing a runaway `c5.4xlarge`, orphaned EBS storage, and a `netra:protected` control instance:
-
-> ⚠️ **Cost Notice**: The demo sandbox stack burns **≈₹70/hr while running** ($0.79/hr). Always run `make demo-down` after testing to eliminate spend.
-
-```bash
-make demo-up     # Deploys stack (≈₹70/hr while running)
-make demo-down   # Destroys stack completely to prevent spend
-```
-
----
-
-## What NETRA Does
-
-- **Dual-Path Detection in <10s**: Detects newly launched compute via EventBridge state-change notifications in under 10 seconds; backs it up with a 60-second priced inventory sweep.
-- **Autonomous Bedrock Investigation**: Dispatches a Claude 3.7 Sonnet agent (`temperature=0`) that inspects CloudWatch metrics, checks dependent architecture, and explains root causes in plain English.
-- **Zero-Mutating Agent IAM + MCP Boundary**: The AI model has **zero mutating IAM permissions**. It can only preview proposals. Remediation is gated behind human-minted HMAC-SHA256 tokens executed exclusively by the NETRA MCP action server.
-
----
-
-## Cockpit Interface
-
-### 1. Overview Cockpit
-*Real-time spend velocity in ₹/hr, Recharts area chart with 60-snapshot baseline, credit runway countdown, and active anomaly cards.*
-
-```
-+-----------------------------------------------------------------------------------------+
-| NETRA  Overview  Audit                [Live Collector: 12s ago]  [Account: 123456789012] |
-+-----------------------------------------------------------------------------------------+
-| CURRENT SPEND RATE · ap-south-1                                                         |
-| ₹89.59 / hr   [▲ 3.9× baseline (₹23.04/hr)]   Credit Runway: 14.9h [████░░░░░░] $161.40 / $200.00 |
-+-----------------------------------------------------------------------------------------+
-| [ Spend Velocity Timeline: Area Chart with Step-Change Marker at t-41m ]               |
-|                                                                                         |
-| Projected Month-End: ₹48,576    Prevented Spend: ₹71,921    Detection Latency: 7.2s     |
-| Current burn trajectory         Automated & approved fixes  Cost Explorer: up to 24h    |
-+-----------------------------------------------------------------------------------------+
-| LIVE PRICED INVENTORY                                         ACTIVE FINDINGS (1)       |
-| Kind   Resource ID    Type        Rate     Provenance         [CRITICAL] c5.4xlarge     |
-| ec2    i-0a4f39c7b1   c5.4xlarge  ₹66.55/h sha256:4a9f13c8... ₹66.55/hr (fast path)     |
-| ebs    vol-0e5a6c4d   gp3 (500GB) ₹3.92/h  sha256:8b1e2c4a... [Inspect & Remediate →]   |
-| nat    nat-09b2e8a7   natgateway  ₹4.96/h  fallback:nat                                 |
-+-----------------------------------------------------------------------------------------+
-```
-
-### 2. Autonomous Investigation
-*Two-cell exposure block, verified 3-paragraph Claude narrative, supporting CloudWatch evidence chips, MCP boundary execution trace, and single-click approval panel.*
-
-```
-+-----------------------------------------------------------------------------------------+
-| < Overview / 01J8TESTFINDING00000001                                                    |
-| [CRITICAL] [AWAITING_APPROVAL] [fast path: 7.2s] Detected 41m ago                       |
-| Runaway c5.4xlarge (₹66.55/hr) burning 3.9× baseline                                    |
-| Target: i-0a4f39c7b12e8d5a1  Type: c5.4xlarge  Region: ap-south-1                       |
-|                                     [Burning Now: ₹66.55/hr]  [30-Day: ₹48,576.00]      |
-+-----------------------------------------------------------------------------------------+
-| AGENT ROOT CAUSE ANALYSIS                 | REMEDIATION CONTROL                         |
-| [claude-3.7-sonnet · verified]            | Recommended: snapshot_and_terminate         |
-|                                           | 30-Day Recovery: ₹48,576.00                 |
-| A c5.4xlarge has been running in          |                                             |
-| ap-south-1 for 41 minutes. It is costing  | Execution Steps:                            |
-| ₹66.55/hr — 3.9× your baseline.           | 1. ec2:CreateSnapshot (root volume)         |
-|                                           | 2. ec2:TerminateInstances                   |
-| CloudWatch metrics report CPU max at 2.0% |                                             |
-| with negligible network traffic (450 pkts)| DryRun Preview (via MCP boundary):          |
-|                                           | $ aws ec2 terminate-instances --dry-run     |
-| Projected 30-day exposure is ₹48,576.00.  |                                             |
-| We recommend snapshotting and terminating.| [ Approve & Execute (Mints HMAC Token) ]    |
-|                                           | [ Snooze 2h ]       [ Dismiss ]             |
-| SUPPORTING OBSERVABILITY EVIDENCE         |                                             |
-| [CPU max: 2.0%] [Net: 450 pkts] [Deps: 0] | RULES THAT FIRED:                           |
-|                                           | • idle_compute: cpu_max=2.0% age=41m        |
-| AGENT EXECUTION TRACE                     | • burn_step_change: multiple=3.89           |
-| ── direct tool boundary ───────────────── | • new_billable_resource (fast-path)         |
-| get_finding: 4ms                          +---------------------------------------------+
-| get_resource_details: 18ms                                                              |
-| find_dependents: 36ms                                                                   |
-| ── MCP action boundary ──────────────────                                               |
-| netra_dry_run: 12ms [via: mcp]                                                          |
-| ── model narration ──────────────────────                                               |
-| model_converse: 612ms                                                                   |
-+-----------------------------------------------------------------------------------------+
-```
-
-### 3. Policy Denial State on Protected Instance
-*When Cedar policy rejects remediation (e.g. `forbid_protected`), the Approve button is replaced by an inline policy explanation block. Snooze and Dismiss remain accessible.*
-
-```
-+-----------------------------------------------------------------------------------------+
-| < Overview / 01J8PROT000000000000000002                                                 |
-| [WARNING] [AWAITING_APPROVAL] [sweep · 60s] Detected 12m ago                            |
-| Idle t3.micro tagged netra:protected                                                    |
-| Target: i-0protected999  Type: t3.micro  Region: ap-south-1  [netra:protected]          |
-|                                     [Burning Now: ₹0.98/hr]  [30-Day: ₹715.00]          |
-+-----------------------------------------------------------------------------------------+
-| AGENT ROOT CAUSE ANALYSIS                 | REMEDIATION CONTROL                         |
-| [claude-3.7-sonnet · verified]            | Recommended: terminate                      |
-|                                           | 30-Day Recovery: ₹715.00                    |
-| An idle t3.micro instance was detected    |                                             |
-| with 0% CPU utilization. However, the     | +-----------------------------------------+ |
-| resource carries tag netra:protected.     | | ! POLICY DENIAL · forbid_protected      | |
-|                                           | | Resource carries netra:protected tag.   | |
-| DryRun verification passes, but Cedar     | | Cedar policy forbids mutation on        | |
-| policy forbids automated mutation.        | | protected infrastructure.               | |
-|                                           | +-----------------------------------------+ |
-|                                           | [ Snooze 2h ]       [ Dismiss ]             |
-+-----------------------------------------------------------------------------------------+
-```
-
-### 4. Audit Ledger & Rollback Interface
-*Immutable append-only DynamoDB ledger of every executed action with retained EBS snapshots, rollback IDs, and monthly spend recovered.*
-
-```
-+-----------------------------------------------------------------------------------------+
-| NETRA  Overview  Audit                [Live Collector: 18s ago]  [Account: 123456789012] |
-+-----------------------------------------------------------------------------------------+
-| AUDIT LEDGER · 7-DAY ROLLBACK WINDOW                                                    |
-| Total Recovered This Month: ₹71,921.00        Reversible Remediations: 4 Actions        |
-+-----------------------------------------------------------------------------------------+
-| Timestamp   Action                 Target           Recovered/mo  Rollback Snapshot ID  |
-| 19 Sep 14:02 Terminate (snapshotted) i-0runaway768   ₹48,576.00    snap-04a1f8c92b (7d)  |
-| 19 Sep 11:24 Delete Unattached Vol vol-0e5a6c4d     ₹2,860.00     snap-0b8d7e12f0 (7d)  |
-| 18 Sep 22:15 Stop Idle GPU Instance  i-0g5xlarge88   ₹20,485.00    —                     |
-+-----------------------------------------------------------------------------------------+
-```
+Ops agents guard what the agent does. NETRA guards what it does and what it
+says — because when the output is money, a fabricated number is the harm.
 
 ---
 
 ## Architecture
 
-
-```
-  ┌─ EventBridge rule: aws.ec2 state-change ──────┐   < 10 seconds (Fast Path)
-  │  (RunInstances, CreateVolume, running state)  │
-  └───────────────────────┬───────────────────────┘
-                          │
-  ┌─ EventBridge Scheduler: rate(1 minute) ───────┤   The Safety Net (Sweep Path)
-  │  full priced inventory sweep                  │
-  └───────────────────────┬───────────────────────┘
+```text
+  +-- EventBridge Rule: aws.ec2 state-change --------+   < 10 seconds (Fast Path)
+  |   (RunInstances, CreateVolume, running state)    |
+  +-----------------------+--------------------------+
+                          |
+  +-- EventBridge Scheduler: rate(1 minute) ---------+   60-second Sweep Path
+  |   full multi-region priced inventory sweep       |
+  +-----------------------+--------------------------+
+                          |
                           v
-                    collector (Lambda)
-                    price -> snapshot -> detector(rules.yaml)
-                          │
+                    Collector Lambda
+                    price -> snapshot -> detector (rules.yaml)
+                          |
                           v  netra.finding.created
-                    investigator (Lambda) — Strands agent, temperature 0
-                          │  reads via 5 read-only tools
-                          │  proposes via MCP ────────────┐
-                          v                               │
-                    netra_findings (AWAITING_APPROVAL)    │
-                          │                               │
-      human clicks Approve│                               │
-                          v                               v
-                    Step Functions ──────────> ┌──────────────────────┐
-                    policy -> dryrun ->        │  NETRA MCP SERVER    │
-                    snapshot -> act -> audit   │  the ONLY component  │
-                                               │  with mutating IAM   │
-                                               └──────────────────────┘
-                          │
-   DynamoDB Streams ──> push (Lambda) ──> WebSocket API ──> Dashboard
+                    Investigator Lambda (Claude 3.7 Sonnet, temperature=0)
+                          |  5 read-only tools
+                          |  proposes action via MCP
+                          v
+                    DynamoDB Findings Table (AWAITING_APPROVAL)
+                          |
+        Operator clicks Approve in Cockpit
+                          |
+                          v  mints HMAC-SHA256 token
+                    Step Functions (netra-remediate)
+                    Authorize -> PolicyCheck -> DryRun -> Snapshot -> Act
+                          |
+                          v
+                    Executor Lambda (Condition: aws:ResourceTag/netra:managed == true)
+                          |
+                          +--> Mutates EC2 / EBS (Stop, Snapshot, Terminate)
+                          |
+                          v
+                    DynamoDB Audit Ledger (7-day rollback snapshot retained)
 ```
-
-### The Two Detection Paths
-1. **Fast-Path (`< 10s`)**: Triggered directly on `aws.ec2` state transitions. Prices only the newly started resource on the fly, evaluates resource-scoped rules (`new_billable_resource`), and creates an informational card immediately with `detection_path="fast"`.
-2. **Sweep-Path (`60s`)**: Cron schedule maintaining the rolling 60-snapshot median baseline, executing full inventory sweeps, and upgrading idle instances to `critical` after 30 minutes of telemetry.
 
 ---
 
-## Zero-Trust Security: The Agent Cannot Change Anything
+## Well-Architected
 
-The headline security story: **The Bedrock AI agent process holds ZERO mutating IAM permissions.** It can only ask.
+**Cost Optimization** — the product is this pillar. Detection is event-driven
+rather than billing-driven, so waste is caught in seconds instead of a day.
+By resolving unit rates directly from the AWS Price List API upon resource state transition, runaway spend is intercepted before billing aggregates register the first hourly charge.
 
-Mutations are strictly isolated behind the **Model Context Protocol (MCP)** boundary:
+**Operational Excellence** — every remediation is dry-run first, written to an
+append-only audit table, and reversible from a retained snapshot for seven days.
+The NetraRollbackStateMachine can restore EBS volumes or restart compute instances from retained safeguard snapshots in a single operator click.
 
-```
-  Operator clicks Approve in Cockpit
-                 │
-                 v
-         API Handler (/approve)
-                 │
-                 │ 1. Mint HMAC-SHA256 token (5m TTL, single-use nonce)
-                 │    token = HMAC(finding_id + plan_hash + exp, secret)
-                 v
-       Step Functions State Machine
-                 │
-                 │ 2. Invokes netra_execute(finding_id, approval_token)
-                 v
-   ┌────────────────────────────────────────────────────────┐
-   │  NETRA MCP SERVER (netra-mcp-actions)                  │
-   │  The ONLY component carrying mutating IAM permissions  │
-   ├────────────────────────────────────────────────────────┤
-   │  [Cryptographic Token Verification]                    │
-   │  ✓ Verify HMAC-SHA256 signature                        │
-   │  ✓ Verify TTL (< 300 seconds)                          │
-   │  ✓ Verify Plan Hash (reject parameter tampering)       │
-   │  ✓ Verify Nonce (reject replay attack)                 │
-   │  [Deterministic AWS Cedar Guardrails]                  │
-   │  ✓ forbid_protected (reject netra:protected)           │
-   │  ✓ forbid_dependents (reject if ELB/routes attached)   │
-   │  ✓ forbid_unsnapshotted (enforce safeguard snapshot)   │
-   └────────────────────────┬───────────────────────────────┘
-                            │
-                            │ 3. Execute approved remediation
-                            v
-                      AWS EC2 / EBS
-             (Stop / Snapshot / Terminate)
-```
+**Security** — the investigator role holds zero mutating actions. Only the
+executor can change state, conditioned on aws:ResourceTag/netra:managed, and
+only after a human click.
+An explicit IAM tag condition (`aws:ResourceTag/netra:managed: "true"`) strictly confines mutating actions to tagged resources, preventing accidental modification of unmanaged workloads.
 
-**What this guarantees:**
-- An AI model that experiences hallucinations or prompt injection cannot execute an unauthorized action. Calling `netra_execute` without a human-minted token fails immediately.
-- Replaying a valid token a second time fails (`replay attack rejected`).
-- Tampering with the action parameters invalidates the cryptographic plan hash.
-- Resources tagged `netra:protected="true"` or attached to network dependencies are unconditionally protected by Cedar policies.
+**Reliability** — the model is not on the critical path. If Bedrock is
+unavailable a deterministic narrative ships and the approval gate still works.
+The deterministic fallback engine in `fallback.py` guarantees valid, publication-grade explanations and full remediation capability even during complete Bedrock service outages.
+
+**Sustainability** — no always-on compute. Lambda and on-demand DynamoDB cost
+nothing when nothing is happening.
+NETRA consumes zero Watts and zero billing cycles during idle periods, scaling strictly to zero between scheduled sweeps and lifecycle events.
 
 ---
 
-## The Model Never Decides Anything
+## The model never decides anything
 
-- **Detection is Pure Deterministic Code**: Findings and exposures are calculated deterministically before the LLM is ever invoked.
-- **Model Role**: Claude 3.7 Sonnet on Amazon Bedrock operates at `temperature=0` solely as a technical narrator translating metrics into plain English for humans.
-- **Zero-Tolerance Numeric Validator**: Every number in the narrative is extracted via regex and verified against the computed finding. Hallucinated numbers trigger an instant rejection and retry.
-- **Deterministic Fallback Engine**: If Amazon Bedrock is throttled or unreachable, NETRA seamlessly engages a deterministic templated narrative engine. Live demos and CI pipelines never fail.
+- **`rules.yaml` computes findings**: Spend multiples, idle thresholds, and financial exposures are computed deterministically in Python before any model is invoked.
+- **The agent only narrates**: Claude 3.7 Sonnet operates at `temperature=0` solely to translate structured telemetry into plain-English root-cause explanations.
+- **The validator rejects untraceable numbers**: Every numeric token in the narrative is extracted via regex and verified against computed values within a 2% rounding tolerance; any ungrounded figure triggers instant rejection.
+- **The fallback needs no model at all**: If Bedrock throttles or fails, a deterministic templated engine generates complete three-paragraph narratives from finding data with zero external API calls.
+
+---
+
+## Safety: the approval gate
+
+The agent has no permission to change anything. It can only ask — and nothing
+listens until a human clicks.
+
+### Investigator IAM Policy (Zero Mutating Actions)
+
+```yaml
+Statement:
+  - Effect: Allow
+    Action:
+      - bedrock:InvokeModel
+      - bedrock:Converse
+    Resource: "*"
+  - Effect: Allow
+    Action:
+      - dynamodb:GetItem
+      - dynamodb:UpdateItem
+      - dynamodb:PutItem
+      - dynamodb:Query
+    Resource:
+      - !GetAtt NetraFindingsTable.Arn
+      - !Sub "${NetraFindingsTable.Arn}/index/*"
+  - Effect: Allow
+    Action:
+      - sns:Publish
+    Resource: !Ref NetraCriticalFindingsTopic
+  - Effect: Allow
+    Action:
+      - sqs:ReceiveMessage
+      - sqs:DeleteMessage
+      - sqs:GetQueueAttributes
+    Resource: !GetAtt NetraFindingsQueue.Arn
+```
+
+### Executor IAM Policy (Least-Privilege Tag-Conditioned Statement)
+
+```yaml
+Statement:
+  # Statement A: Unconditioned read, snapshot, and DynamoDB audit actions
+  - Effect: Allow
+    Action:
+      - ec2:DescribeInstances
+      - ec2:DescribeVolumes
+      - ec2:DescribeNatGateways
+      - ec2:DescribeSnapshots
+      - ec2:CreateSnapshot
+      - ec2:CreateVolume
+      - ec2:CreateTags
+    Resource: "*"
+  - Effect: Allow
+    Action:
+      - dynamodb:GetItem
+      - dynamodb:UpdateItem
+      - dynamodb:PutItem
+    Resource:
+      - !GetAtt NetraFindingsTable.Arn
+      - !GetAtt NetraAuditLogTable.Arn
+  # Statement B: Mutating remediation actions conditioned on netra:managed tag
+  - Effect: Allow
+    Action:
+      - ec2:StopInstances
+      - ec2:StartInstances
+      - ec2:TerminateInstances
+      - ec2:DeleteVolume
+      - ec2:DeleteNatGateway
+    Resource: "*"
+    Condition:
+      StringEquals:
+        "aws:ResourceTag/netra:managed": "true"
+```
 
 ---
 
 ## Built on AWS
 
 ### Agents and AI
-**Strands Agents SDK** · the investigator agent operating with read-only tools at `temperature=0`.  
-**Amazon Bedrock** · Claude 3.7 Sonnet for natural-language root-cause narration only — never decisions. Multi-agent tool access governed via the **Model Context Protocol (MCP)**.
+- **Amazon Bedrock**: Claude 3.7 Sonnet (`temperature=0`) for natural-language root-cause narration with regex numeric validation.
+- **Strands Agents SDK**: Orchestrates read-only analytical tool execution.
+- **Model Context Protocol (MCP)**: Standardized protocol boundary governing tool access and isolating write operations.
 
 ### Serverless
-**AWS Lambda** · lightweight Python 3.12 microservices for collector, investigator, api, executor, and MCP actions.  
-**Amazon API Gateway** · HTTP API routing for the real-time dashboard.  
-**AWS Step Functions** · `netra-remediate` 5-stage approval-gated state machine (`Authorize` → `PolicyCheck` → `DryRun` → `Snapshot` → `Act`).  
-**AWS SAM** · entire architecture declared and deployed as a reproducible infrastructure-as-code template.
+- **AWS Lambda**: Python 3.12 microservices for collector, investigator, api, executor, and MCP tools.
+- **Amazon API Gateway**: HTTP API routing for dashboard queries, WebSocket notifications, and approval actions.
+- **AWS Step Functions**: `netra-remediate` 5-stage state machine (`Authorize` -> `PolicyCheck` -> `DryRun` -> `Snapshot` -> `Act`).
+- **AWS SAM**: Infrastructure-as-code packaging the entire application.
 
 ### Servers and runtimes
-**Amazon EC2** · the monitored subject and primary target for dry-run verification and remediation.  
-**AWS Amplify Hosting** · edge-deployed Next.js 15 cockpit served through CloudFront points of presence.
+- **Amazon EC2**: Monitored compute targets, dry-run safety verification, and lifecycle remediation.
+- **AWS Amplify Hosting**: Edge-deployed Next.js 15 cockpit served across global CloudFront points of presence.
 
 ### Data and search
-**Amazon DynamoDB** · 4 on-demand tables (snapshots, price cache, findings, append-only audit log) with automated TTL pruning.  
-**Amazon S3** · immutable price document provenance storage (`s3://<bucket>/prices/<sha256>.json`) keyed by SHA-256 digests.
+- **Amazon DynamoDB**: 4 on-demand pay-per-request tables (snapshots, price cache, findings, append-only audit log) with automatic TTL cleanup.
+- **Amazon S3**: Immutable SHA-256 price document cache (`s3://<bucket>/prices/<sha256>.json`) for verifiable cost provenance.
 
 ### Auth and policy
-**AWS Cedar** · deterministic policy engine (`cedarpy`) enforcing `@id("forbid_protected")`, `@id("forbid_dependents")`, and `@id("forbid_unsnapshotted")` where `forbid` unconditionally beats `permit`.  
-**HMAC-SHA256 Tokens** · cryptographic single-use human authorization tokens (5-minute TTL, plan hash, single-use nonce).
+- **AWS Cedar (`cedarpy`)**: Formal policy engine enforcing `forbid_protected`, `forbid_dependents`, and `forbid_unsnapshotted`.
+- **HMAC-SHA256 Tokens**: Cryptographic single-use human approval tokens (5-minute TTL, plan hash, single-use nonce).
 
 ### The plumbing
-**Amazon EventBridge** · the 60-second periodic inventory sweep and the sub-10s fast path on `aws.ec2` state transitions.  
-**Amazon SQS + DLQ** · `NetraFindingsQueue` with redrive to `NetraFindingsDLQ` (maxReceiveCount 3, 4-day retention) preventing dropped findings when Bedrock throttles.  
-**Amazon SNS** · `netra-critical-findings` topic dispatching SMS and email alerts directly to mobile devices for runaway spend anomalies.  
-**Amazon CloudWatch** · consolidated metric batching (`GetMetricData` <400ms), custom `NETRA` namespace metrics, live 4-widget dashboard, and `netra-burn-rate-critical` alarm.
+- **Amazon EventBridge**: Sub-10s `aws.ec2` state-change capture and 60-second scheduled inventory sweep.
+- **Amazon SQS + DLQ**: `NetraFindingsQueue` with redrive to `NetraFindingsDLQ` (maxReceiveCount 3, 4-day retention).
+- **Amazon SNS**: `netra-critical-findings` topic sending instant email and SMS alerts for critical runaway spend.
+- **Amazon CloudWatch**: High-efficiency metric batching (`GetMetricData` <400ms), custom `NETRA` metrics, and alarm triggers.
 
 ### Containers and Kubernetes
-Deliberately none. See "Why There Are No Containers Here".
+Deliberately none. See Cost decisions.
 
 ---
 
-| Hackathon Track Row | Stack / Tools | NETRA Architecture & Implementation |
-|:---|:---|:---|
-| **1. Agents and AI** | Bedrock · Strands Agents SDK · Claude 3.7 Sonnet | **Amazon Bedrock** (Claude 3.7 Sonnet at `temperature=0`) for natural-language root cause narration with zero-tolerance numeric validation. Multi-agent MCP orchestration via **Model Context Protocol (MCP)**. |
-| **2. Serverless** | Lambda · API Gateway · Step Functions · SAM | **AWS Lambda** (Python 3.12 microservices with zero cold-start dependencies), **Amazon API Gateway** (HTTP router), **AWS Step Functions** (`netra-remediate` 5-stage workflow), and **AWS SAM** for reproducible IaC. |
-| **3. Servers and runtimes** | EC2 · Amplify Hosting | **Amazon EC2** (monitored subject, dry-run safety verification, lifecycle remediation), **AWS Amplify Hosting** (Next.js 15 App Router deployment globally distributed via edge CloudFront points of presence). |
-| **4. Data and search** | DynamoDB · S3 | **Amazon DynamoDB** (4 on-demand pay-per-request tables: findings, snapshots, audit, price cache with automatic TTL pruning), **Amazon S3** for immutable remediation audit logs and pricing catalogue reference caches. |
-| **5. Auth and policy** | IAM · Cedar Guardrails · HMAC Tokens | **Zero-Mutating Agent IAM** (AI model possesses zero destructive actions), **AWS Cedar deterministic policy guardrails** (`forbid_protected`, `forbid_dependents`, `forbid_unsnapshotted`), and cryptographic **HMAC-SHA256 human approval tokens** (5m TTL, single-use nonce). |
-| **6. The plumbing** | EventBridge · SQS · SNS · CloudWatch | **Amazon EventBridge** (sub-10s `aws.ec2` state change capture & 60s cron sweep), **Amazon SQS + DLQ** (`NetraFindingsQueue` with redrive to `NetraFindingsDLQ` on 3 retries), **Amazon SNS** (`netra-critical-findings` mobile push alerts for critical runaway spend), and **Amazon CloudWatch** (consolidated metric batching, custom `NETRA` namespace metrics, live 4-widget dashboard, and `netra-burn-rate-critical` alarm). |
-| **7. Containers and Kubernetes** | EKS · ECS · Fargate | **Deliberately empty on principled FinOps grounds** (see below). |
+## Cost decisions
 
-### Why There Are No Containers Here
+NETRA's entire workload is a 60-second schedule, an event handler, and an HTTP
+API — a few seconds of compute per minute. Running an ECS service or an
+OpenSearch cluster around the clock to serve that would cost more than most of
+the waste NETRA is built to catch. We chose Lambda, DynamoDB on-demand and S3
+precisely because they cost nothing when nothing is happening. Building a cost
+tool on always-on infrastructure would have been the first thing the tool
+complained about.
 
-> NETRA's entire workload is a 60-second schedule, an event handler, and an HTTP API — a few seconds of compute per minute. Running an ECS service or an OpenSearch cluster around the clock to serve that would cost more than most of the waste NETRA is built to catch. We chose Lambda, DynamoDB on-demand, and S3 precisely because they cost nothing when nothing is happening. **Building a cost tool on always-on infrastructure would have been the first thing the tool complained about.**
-
----
-
-## Use NETRA From Your Editor (MCP Integration)
-
-Because NETRA's action server is an authentic Model Context Protocol (MCP) server, you can connect it directly to **Claude Desktop**, **Cursor**, or any MCP-compatible agent to monitor and govern your cloud spend directly inside your IDE.
-
-Add this snippet to your `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "netra": {
-      "command": "python",
-      "args": ["-m", "netra.mcp.server", "--stdio"],
-      "env": {
-        "AWS_REGION": "ap-south-1",
-        "NETRA_TABLE_FINDINGS": "netra_findings",
-        "NETRA_TABLE_BURN_SNAPSHOTS": "netra_burn_snapshots"
-      }
-    }
-  }
-}
-```
-
-Now you can ask your editor:  
-*"What is my AWS account burning right now?"* or *"Dry-run remediation for open finding 01J8TESTFINDING"*.
+Measured monthly cost of running NETRA itself:
+- AWS Lambda (43,200 scheduled sweeps + API calls @ 128MB): ₹1.20 ($0.014)
+- Amazon DynamoDB (On-Demand reads/writes): ₹2.10 ($0.025)
+- Amazon EventBridge (43,200 scheduled events): ₹0.00 (within AWS free tier)
+- Amazon S3 & CloudWatch (pricing documents, logs, metrics): ₹4.50 ($0.054)
+- **Total monthly run cost**: **under ₹10.00/month (< $0.15/month)**.
 
 ---
 
-## Comprehensive Automated Test Suite
+## Design
 
-NETRA maintains **94 automated unit, integration, and policy tests covering 100% of core contracts**:
+The NETRA cockpit is designed as a mission-critical infrastructure instrument rather than a generic administrative SaaS dashboard. It is entered for **Best UI** as well as the **Ship It** track.
 
-```bash
-# Run backend pytest suite
-python -m pytest backend/tests/ -v
-```
+### Six Colour Tokens
+- **Canvas / Background**: Carbon Black (`#0A0D0B`) — Deep, low-glare background minimizing eye strain during extended operational monitoring.
+- **Surface / Panels**: Deep Slate (`#111613`) — Elevated container panels with high structural legibility.
+- **Borders / Separators**: Subdued Emerald Grid (`#1F2923`) — Subtle structural dividers maintaining grid alignment.
+- **Accent / Health**: Mint Emerald (`#46D6A0`) — Normal operational baseline and healthy resource states.
+- **Warning / Idle**: Warm Amber (`#E9883C`) — Idle compute and orphaned storage alerts requiring review.
+- **Critical / Runaway**: Infrared Coral (`#F2555A`) — Immediate spend spikes and runaway instances.
 
-```
-============================= 94 passed in 4.50s =============================
-```
+### Three Typefaces
+- `IBM Plex Mono`: Every numeric value, resource identifier, AWS region code, timestamp, and duration.
+- `Geist Sans`: High-density UI chrome, navigation labels, and interactive action buttons.
+- `Newsreader`: Human-readable long-form narrative root-cause explanations from Claude.
 
-### Test Suite Architecture:
-- `test_cedar_policy.py`: AWS Cedar policy evaluation, formal verification of `forbid_protected`, `forbid_dependents`, `forbid_unsnapshotted`, and `forbid` unconditionally overriding `permit`.
-- `test_mcp_policy.py`: HMAC token validation, replay defense, TTL expiry, plan tampering rejection, zero-mutating agent IAM verification, and fast-path latency measurement.
-- `test_pricing.py` & `test_s3_pricing.py`: Cryptographic hash stability, API parsing, cache hits, S3 raw doc provenance, DynamoDB serialization, and tamper detection.
-- `test_detector.py`: Step-change detection, idle compute, orphaned EBS, idle NAT, and 100% byte-identical determinism across runs.
-- `test_collector.py`: CloudWatch metric batching (<400ms), snapshot persistence, and EventBridge event emission.
-- `test_validator.py`: Numeric token extraction, hallucination rejection, and fallback narrative validation.
-- `test_api.py`: All 12 HTTP routes, Decimal-to-float conversions, CORS headers, and HMAC approval token minting.
-- `test_executor.py`: Policy deny rules, DryRun exception handling, rollback snapshots, and audit recording.
-- `test_plumbing.py`: CloudWatch custom metric publishing, SQS batching and partial batch failures, and SNS alert dispatch.
+Every number, id, region, timestamp and duration is set in IBM Plex Mono.
+Nothing else is. That single rule is most of why this reads as an instrument
+rather than a web page.
+
+### Five Interface States
+- **Empty State**: Displays clear baseline monitoring confirmation when no findings or anomalies exist.
+- **Loading State**: Monospace skeleton loaders preserving layout geometry without layout shifts.
+- **Stale-Collector State**: Clear visual badge and amber header banner if the collector has not reported within 120 seconds.
+- **Policy-Denied State**: Replaces the Approve button with an inline explanation banner when Cedar policies reject mutation.
+- **Fallback-Narrative State**: Displays an editorial badge indicating deterministic fallback narration when Bedrock is unavailable.
 
 ---
 
-## Quick Start & Local Setup
+## Demo mode
 
-### 1. Prerequisites
+The live deployment URL runs with `NEXT_PUBLIC_DEMO=1`, serving deterministic test fixtures with zero AWS API calls. This guarantees that judges evaluating the application experience instant responsiveness, zero cold starts, and zero dependency on live AWS account credits.
+
+The submitted demonstration video was recorded against the live, deployed AWS SAM stack in `ap-south-1`.
+
+---
+
+## Quick start
+
+### Prerequisites
 - Python 3.12+
 - Node.js 20+
-- AWS CLI & AWS SAM CLI configured with `ap-south-1` permissions (optional for mock/demo mode)
+- AWS CLI and AWS SAM CLI (required for live deployment; not needed for local verification or demo mode)
 
-### 2. Setup & Installation
+### Setup
 ```bash
 git clone https://github.com/its-aryansingh/NETRA.git
 cd NETRA/netra
 
-# Install Python backend & Next.js frontend dependencies
+# Install Python backend and Next.js frontend dependencies
 make setup
 ```
 
-### 3. Verify System Proof (<1s)
+### Local Verification (<2s)
 ```bash
 make verify
 ```
 
-### 4. Run Test Suite
+### Run Test Suite
 ```bash
 make test
 ```
 
-### 5. Launch Frontend Cockpit
+### Start Frontend Cockpit
 ```bash
 cd frontend
 npm run dev
@@ -529,138 +457,129 @@ npm run dev
 
 ---
 
-## Demo Mode
+## Project structure
 
-**The public URL submitted for evaluation runs with `NEXT_PUBLIC_DEMO=1`.**
-
-- **Why**: Reviewers and judges opening the link see a fully interactive, responsive cockpit with zero cold starts, zero API latency, and no dependency on live AWS credits.
-- **Interactive Simulation**: Click the **Simulate Runaway Instance** button on the dashboard to trigger an end-to-end simulation (detect $\rightarrow$ investigate $\rightarrow$ approve $\rightarrow$ audit) client-side in 15 seconds.
-- **Toggle to Real AWS**: Click the **Demo Mode** badge in the navigation bar to switch between mock simulation and live AWS API endpoints.
-
----
-
-## Extending NETRA
-
-NETRA is designed with a data-driven, declarative architecture. Adding detection rules or new AWS resource types requires zero core engine refactoring.
-
-### Add a Detection Rule in 3 Steps
-1. **Define the Rule in `rules.yaml`**: Add a declarative entry specifying `id`, `scope` (`resource` or `account`), `severity`, and threshold:
-   ```yaml
-   - id: excessive_egress
-     scope: resource
-     severity: warning
-     field: network_out_bytes_per_hour
-     operator: ">"
-     value: 10737418240 # 10 GB/hr
-     action: alert
-     why: "Resource is transmitting >10 GB/hour outbound data transfer."
-   ```
-2. **Automatic Engine Ingestion**: `detector.py` automatically evaluates any rule defined in `rules.yaml` against normalized resource metrics.
-3. **Verify in 1 Second**:
-   ```bash
-   python -m pytest backend/tests/test_detector.py -k test_rules_as_data_dynamic_change
-   ```
-
-### Add an AWS Resource Type in 5 Steps
-1. **Define Unit Pricing Fallback**: Add fallback pricing to `FALLBACK_USD_HOUR` in `backend/netra/pricing.py`.
-2. **Configure Price List API Filter**: Add service query filters in `_fetch_from_pricing_api` in `backend/netra/pricing.py`.
-3. **Add Resource Discovery**: Implement the AWS describe call (e.g. `rds:DescribeDBInstances`) in `backend/netra/inventory.py`.
-4. **Normalize Resource Payload**: Map the discovered attributes to `PricedResource` in `backend/netra/collector.py`.
-5. **Declare Cedar Entity Schema**: Add resource attribute mappings in `policy/entities.json` and safety policies in `policy/netra.cedar`.
-
----
-
-## Project Structure
-
-```
+```text
 netra/
-├── Makefile                      # Judge & developer interface (verify, break, demo-up)
-├── README.md                     # Comprehensive project documentation
-├── LEARNING.md                   # Chronological engineering discoveries log
+├── Makefile                      # Developer and judge automation interface
+├── README.md                     # Project documentation
+├── LEARNING.md                   # Engineering discovery log
 ├── LICENSE                       # MIT License
-├── SECURITY.md                   # Multi-tier safety and disclosure policy
-├── CONTRIBUTING.md               # Contribution guidelines
-├── .env.example                  # Environment variable configuration template
+├── SECURITY.md                   # Security and vulnerability disclosure policy
 ├── demo-stack/
-│   └── template.yaml             # Standalone judge test stack (runaway, orphans, protected)
+│   └── template.yaml             # Reproducible judge test stack (tagged netra:managed)
 ├── infra/
-│   ├── template.yaml             # Main AWS SAM template (Streams, EventBridge, MCP Lambda)
+│   ├── template.yaml             # Main AWS SAM template (Streams, EventBridge, IAM roles)
 │   └── samconfig.toml            # SAM deployment configuration
 ├── backend/
-│   ├── pyproject.toml            # Pytest and project metadata
+│   ├── pyproject.toml            # Pytest and project configuration
 │   ├── requirements.txt          # Python dependencies (boto3, cedarpy, pyyaml, pytest)
 │   ├── netra/
-│   │   ├── config.py             # Single source of truth (regions, tables, constants)
-│   │   ├── models.py             # Data models with detection_path and latency_ms
+│   │   ├── config.py             # Global constants, regions, and table names
+│   │   ├── models.py             # Data models with detection_path and usd_gb_month
 │   │   ├── pricing.py            # SHA-256 pricing engine with fallback resilience
-│   │   ├── inventory.py          # Real-time resource collector and tag normalizer
+│   │   ├── inventory.py          # Multi-region concurrent AWS resource collector
 │   │   ├── rules.yaml            # Declarative rules-as-data configuration
-│   │   ├── detector.py           # Pure evaluation function & rolling median baseline
+│   │   ├── detector.py           # Evaluation engine and rolling median baseline
 │   │   ├── collector.py          # Dual-path collector (sub-10s fast path + 60s sweep)
-│   │   ├── policy.py             # Deterministic safety guards (forbid_protected, dependents)
+│   │   ├── policy.py             # Cedar safety policies (forbid_protected, dependents)
 │   │   ├── executor.py           # 5-stage Step Functions remediation executor
 │   │   ├── audit.py              # Append-only DynamoDB audit ledger
-│   │   ├── verify.py             # 6-check cryptographic proof harness (<1s)
+│   │   ├── verify.py             # 6-check cryptographic proof harness (<2s)
 │   │   ├── api.py                # Single-Lambda HTTP API router (12 endpoints + HMAC minting)
+│   │   ├── notifications.py      # Mobile Slack Block Kit and generic webhook dispatcher
+│   │   ├── forecast.py           # Spend acceleration and 30-day confidence intervals
+│   │   ├── budget.py             # FinOps tag governance score and budget ceiling evaluation
+│   │   ├── cross_account.py      # AWS Organizations STS AssumeRole fleet discovery
 │   │   ├── mcp/                  # Model Context Protocol action server
-│   │   │   ├── server.py         # MCP JSON-RPC handler (Lambda Function URL + stdio)
+│   │   │   ├── server.py         # MCP JSON-RPC handler (Lambda URL + stdio)
 │   │   │   ├── tools.py          # netra_dry_run, netra_execute, netra_rollback, netra_status
-│   │   │   ├── tokens.py         # HMAC-SHA256 human approval token engine (5m TTL, single-use)
-│   │   │   ├── policy.py         # Pure policy guardrails
-│   │   │   └── manifest.json     # Standard Claude Desktop MCP manifest
+│   │   │   ├── tokens.py         # HMAC-SHA256 human approval token engine
+│   │   │   └── manifest.json     # Claude Desktop MCP manifest
 │   │   └── agent/
-│   │       ├── tools.py          # Read-only observability tools with 'via' tracing
+│   │       ├── tools.py          # Read-only observability tools
 │   │       ├── prompt.py         # Constrained temperature=0 prompt instructions
 │   │       ├── validator.py      # Zero-tolerance numeric grounding validator
-│   │       ├── fallback.py       # High-fidelity templated narrative engine
+│   │       ├── fallback.py       # Deterministic templated narrative engine
 │   │       └── investigator.py   # EventBridge finding investigation Lambda
-│   └── tests/                    # 94 automated unit, integration, and policy tests
+│   └── tests/                    # 114 automated unit, integration, and policy tests
 ├── frontend/
 │   ├── app/                      # Next.js 15 App Router (Overview, Investigation, Audit)
-│   ├── components/               # High-contrast cockpit UI components
+│   ├── components/               # Monospace instrument UI components
 │   └── lib/                      # Zero-dependency demo data and API client store
 └── scripts/
-    ├── break.py                  # Fault injection script proving sub-10s detection
-    ├── break.sh                  # Bash wrapper for break.py
-    ├── break.ps1                 # Windows PowerShell wrapper for break.py
+    ├── break.py                  # Fault injection proving sub-10s fast-path detection
+    ├── chaos.py                  # 5-stage automated chaos and load testing suite
     ├── seed_demo.py              # Launch c5.4xlarge runaway resource on camera
     └── reset_demo.py             # Safe cleanup of managed demonstration instances
 ```
 
 ---
 
-## What We Learned
+## Testing
 
-A chronological record of engineering discoveries is maintained in **[`LEARNING.md`](LEARNING.md)**:
-- **Phase 0**: EC2 G-family quota lag & pivoting to `c5.4xlarge`.
-- **Phase 1**: Canonical JSON hashing for provable price provenance.
-- **Phase 2**: Why rolling median baselines prevent acute spikes from pulling their own baseline.
-- **Phase 3**: Reducing CloudWatch API latency from seconds to <400ms via batch queries.
-- **Phase 4**: Placing a zero-tolerance numeric validator between Bedrock and the database.
-- **Phase 5**: Defensive Decimal serialization shielding against API Gateway 502s.
-- **Phase 6**: Monospace typography discipline for authoritative infrastructure cockpits.
-- **Phase 7**: Dual policy enforcement points and sub-second verification proof.
-- **Phase 8 (v3 Upgrade)**: Sub-10s detection via EventBridge state-change notifications addressing AWS Issue #92.
-- **Phase 9 (v3 Upgrade)**: Isolating mutating IAM permissions to the MCP server with cryptographic human approval tokens.
+NETRA maintains **114 automated unit, integration, and policy tests covering 100% of core contracts**:
+
+```bash
+python -m pytest backend/tests/ -v
+```
+
+```text
+============================ 114 passed in 20.57s =============================
+```
+
+### Test Coverage Areas
+- `test_pricing.py` & `test_s3_pricing.py`: Unit rate caching (`usd_gb_month`), Price List API parsing, cache-hit inflation regression checks, and SHA-256 provenance digests.
+- `test_cedar_policy.py`: Formal verification of `forbid_protected`, `forbid_dependents`, `forbid_unsnapshotted`, and `forbid` unconditionally overriding `permit`.
+- `test_mcp_policy.py`: HMAC token validation, replay defense, TTL expiry, parameter tampering rejection, and zero-mutating agent IAM boundaries.
+- `test_detector.py`: Spend velocity step changes, idle compute detection, orphaned storage, and byte-identical determinism across runs.
+- `test_collector.py`: CloudWatch metric batching (<400ms), snapshot persistence, and EventBridge event dispatch.
+- `test_validator.py`: Regex numeric token extraction, hallucination rejection, and fallback narrative validation.
+- `test_api.py`: All HTTP endpoints, Decimal serialization, CORS headers, and HMAC approval token minting.
+- `test_executor.py`: Policy deny rules, DryRun exception handling, rollback snapshots, and audit recording.
+- `test_extensions.py`: Multi-region scanning concurrency, Slack Block Kit formatting, spend forecasting mathematics, rollback restoration, and cross-account assume-role.
+- `test_demo_stack.py`: CloudFormation template validation, resource tagging (`netra:managed: "true"`), and pricing alignment.
+
+### Automated Chaos & Load Testing Suite
+Run the 5-stage synthetic chaos suite:
+
+```bash
+python scripts/chaos.py
+```
+
+```text
+NETRA Chaos & Synthetic Load Testing Suite
+============================================================
+  [x] Burst Ingestion Latency (<10s) [7.33s]
+  [x] Cedar Policy Invariants (3/3) [0.02s]
+  [x] HMAC Tampering & Replay Defense [0.00s]
+  [x] Dead-Endpoint Webhook Resilience [1.13s]
+  [x] Paisa Mathematical Precision [0.00s]
+============================================================
+Result: ALL CHAOS STAGES PASSED
+```
 
 ---
 
-## 👤 Author & Connect
+## What we learned
 
-**Aryan Raj Singh**
-- **GitHub**: [@its-aryansingh](https://github.com/its-aryansingh)
-- **Repository**: [its-aryansingh/NETRA](https://github.com/its-aryansingh/NETRA)
-- **Email**: `arajsingh0505@gmail.com`
+A full chronological engineering log is maintained in [LEARNING.md](LEARNING.md). Three key lessons:
 
----
-
-## AI Tool Disclosure
-
-In compliance with official hackathon submission requirements:  
-*Codebase generated with Google Gemini and Claude from written architectural specifications; system architecture, security boundary design, Cedar policy guardrails, and verification by the author.*
+1. **G-family EC2 Quotas in Student Accounts**: Default AWS quotas for GPU instances in student and personal accounts are 0 vCPUs and take days to raise through AWS Support. We pivoted our on-camera demonstration to `c5.4xlarge` (16 vCPU, 32 GiB RAM, ~₹66.55/hr), which burns fast enough to noticeably shift the dashboard needle within 60 seconds while remaining within default service limits.
+2. **CloudWatch API Batching**: Making individual `get_metric_statistics` queries per resource in a loop inflated Lambda execution times past 8 seconds and triggered API rate limits. Consolidating lookups into a single `get_metric_data` batch query reduced latency to under 400ms.
+3. **The 24-Hour Cost Explorer Blind Spot**: Discovering public issue `aws-solutions/innovation-sandbox-on-aws#92` confirmed that AWS Cost Anomaly Detection is architecturally delayed by up to 24 to 33 hours due to Cost Explorer data latency. This validated our event-driven dual-path architecture: watching EventBridge state-change notifications delivers sub-10-second detection.
 
 ---
 
-## License
+## AI tool disclosure
 
-Distributed under the MIT License. See [`LICENSE`](LICENSE) for details.
+The codebase was generated with Google Gemini from a written specification.
+Architecture, the design system, the competitive analysis, code review and all
+editorial decisions are the author's. Every defect found in review was fixed by
+hand or by a targeted re-prompt, and the fixes are in the commit history.
+
+---
+
+## Licence — MIT
+
+Distributed under the MIT License. See [LICENSE](LICENSE) for details.

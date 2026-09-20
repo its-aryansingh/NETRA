@@ -356,20 +356,16 @@ Resources:
       Timeout: 60
       Policies:
         - Statement:
+            # Statement A: Unconditioned read, snapshot, and DynamoDB audit actions
             - Effect: Allow
               Action:
                 - ec2:DescribeInstances
                 - ec2:DescribeVolumes
                 - ec2:DescribeNatGateways
                 - ec2:DescribeSnapshots
-                - ec2:StopInstances
-                - ec2:StartInstances
-                - ec2:TerminateInstances
-                - ec2:DeleteVolume
                 - ec2:CreateSnapshot
                 - ec2:CreateVolume
                 - ec2:CreateTags
-                - ec2:DeleteNatGateway
               Resource: "*"
             - Effect: Allow
               Action:
@@ -379,6 +375,18 @@ Resources:
               Resource:
                 - !GetAtt NetraFindingsTable.Arn
                 - !GetAtt NetraAuditLogTable.Arn
+            # Statement B: Mutating remediation actions conditioned on netra:managed tag
+            - Effect: Allow
+              Action:
+                - ec2:StopInstances
+                - ec2:StartInstances
+                - ec2:TerminateInstances
+                - ec2:DeleteVolume
+                - ec2:DeleteNatGateway
+              Resource: "*"
+              Condition:
+                StringEquals:
+                  "aws:ResourceTag/netra:managed": "true"
 
   # Phase 7: Step Functions State Machine
   NetraRemediateStateMachine:
