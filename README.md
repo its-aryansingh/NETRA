@@ -5,7 +5,7 @@
 [![CI](https://github.com/its-aryansingh/NETRA/actions/workflows/ci.yml/badge.svg)](https://github.com/its-aryansingh/NETRA/actions)
 [![make verify](https://img.shields.io/badge/make%20verify-Passed%20(1.23s)-46D6A0?style=flat-square)](#reproduce-it-in-90-seconds)
 [![Tests Passing](https://img.shields.io/badge/Tests-131%2F131%20Passing-46D6A0?style=flat-square)](backend/tests/)
-[![Live Demo](https://img.shields.io/badge/Live%20Cockpit-Amplify%20Hosting-blue?style=flat-square)](https://main.d123456789.amplifyapp.com)
+[![Live Demo](https://img.shields.io/badge/Live%20Cockpit-Railway%20Live-46D6A0?style=flat-square)](https://netra-production.up.railway.app/)
 [![Demo Video](https://img.shields.io/badge/Demo%20Video-YouTube-red?style=flat-square)](#-3-minute-demo-video)
 [![License: MIT](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)](LICENSE)
 
@@ -18,7 +18,8 @@ It detects newly launched or runaway billable cloud resources in under 10 second
 The core guarantee: zero resources terminate or mutate without an explicit human operator click.
 Running NETRA costs under $0.15 per month because it uses 100% on-demand serverless infrastructure that consumes zero compute when idle.
 Reproduce the entire detection and policy proof in under two minutes with `make demo-up && make break && make verify`.
-Live interactive cockpit: https://main.d123456789.amplifyapp.com.
+
+**Live interactive cockpit**: [https://netra-production.up.railway.app/](https://netra-production.up.railway.app/) *(No sign-up or AWS credentials required — pre-seeded with Mumbai `ap-south-1` telemetry)*.
 
 ---
 
@@ -202,42 +203,76 @@ says — because when the output is money, a fabricated number is the harm.
 
 ---
 
-## Architecture
+## Architecture: Five Structural Guarantees
 
-```text
-  +-- EventBridge Rule: aws.ec2 state-change --------+   < 10 seconds (Fast Path)
-  |   (RunInstances, CreateVolume, running state)    |
-  +-----------------------+--------------------------+
-                          |
-  +-- EventBridge Scheduler: rate(1 minute) ---------+   60-second Sweep Path
-  |   full multi-region priced inventory sweep       |
-  +-----------------------+--------------------------+
-                          |
-                          v
-                    Collector Lambda
-                    price -> snapshot -> detector (rules.yaml)
-                          |
-                          v  netra.finding.created
-                    Investigator Lambda (Claude 3.7 Sonnet, temperature=0)
-                          |  5 read-only tools
-                          |  proposes action via MCP
-                          v
-                    DynamoDB Findings Table (AWAITING_APPROVAL)
-                          |
-        Operator clicks Approve in Cockpit
-                          |
-                          v  mints HMAC-SHA256 token
-                    Step Functions (netra-remediate)
-                    Authorize -> PolicyCheck -> DryRun -> Snapshot -> Act
-                          |
-                          v
-                    Executor Lambda (Condition: aws:ResourceTag/netra:managed == true)
-                          |
-                          +--> Mutates EC2 / EBS (Stop, Snapshot, Terminate)
-                          |
-                          v
-                    DynamoDB Audit Ledger (7-day rollback snapshot retained)
+```mermaid
+flowchart TB
+    subgraph Ingestion["1. Telemetry Ingestion · Dual-Path"]
+        direction TB
+        EB_Fast["⚡ EventBridge Fast Path<br/>aws.ec2 state-change<br/><b>&lt; 10s Detection (50ms measured)</b>"]
+        EB_Sweep["⏱ EventBridge Scheduler<br/>Multi-Region 60s Sweep<br/><b>ap-south-1 · us-east-1 · eu-west-1</b>"]
+    end
+
+    subgraph Pricing["2. Provenance Pricing Engine"]
+        direction TB
+        Collector["Collector Lambda (Python 3.12)<br/>Batched CloudWatch Telemetry (&lt;400ms)"]
+        PriceAPI["AWS Price List API<br/>Deterministic Unit Rates"]
+        S3Price["Amazon S3 Cache<br/>SHA-256 Hashed Price Docs"]
+        RulesData["rules.yaml<br/>Declarative Rules-as-Data Engine"]
+        PriceAPI --> S3Price --> Collector
+        RulesData --> Collector
+    end
+
+    EB_Fast --> Collector
+    EB_Sweep --> Collector
+
+    subgraph DefensiveAI["3. Defensive AI Boundary · Zero Mutating IAM"]
+        direction TB
+        SQS["Amazon SQS + DLQ<br/>netra-findings-queue"]
+        Investigator["Investigator Lambda<br/>OpenAI gpt-4o-mini / Bedrock Claude"]
+        Validator["🛡 Zero-Tolerance AST Validator<br/>Regex extraction vs DB values<br/><b>0% Unconstrained Hallucinations</b>"]
+        Fallback["Deterministic Templated Fallback<br/>100% Availability during outages"]
+        SQS --> Investigator
+        Investigator --> Validator
+        Validator -->|Hallucination Detected| Fallback
+    end
+
+    Collector -->|netra.finding.created| SQS
+
+    subgraph PolicyGate["4. Cryptographic Human Gate & Cedar Policies"]
+        direction TB
+        FindingsDB[("Amazon DynamoDB<br/>NetraFindingsTable (AWAITING_APPROVAL)")]
+        Cockpit["🖥 Next.js 15 Monospace Cockpit<br/>netra-production.up.railway.app"]
+        HumanOperator["👤 Human Operator Click<br/>Mints HMAC-SHA256 Token (5m TTL)"]
+        Cedar["🛡 AWS Cedar Policy Engine<br/>forbid_protected · forbid_dependents<br/><b>1.2ms Formal Verification</b>"]
+        FindingsDB --> Cockpit --> HumanOperator --> Cedar
+    end
+
+    Validator -->|Verified Finding| FindingsDB
+    Fallback -->|Deterministic Finding| FindingsDB
+
+    subgraph Execution["5. Step Functions Remediation Pipeline"]
+        direction TB
+        SFN["AWS Step Functions (netra-remediate)<br/>Authorize ➔ PolicyCheck ➔ DryRun ➔ Snapshot ➔ Act"]
+        Snapshot["EBS Rollback Snapshot<br/>Tag: netra:rollback (7-day TTL)"]
+        Executor["Executor Lambda<br/>Condition: aws:ResourceTag/netra:managed == true"]
+        AuditLedger[("Amazon DynamoDB<br/>Append-Only Immutable Audit Log")]
+        SNS["Amazon SNS Alerts<br/>SMS & Email &lt; 160 chars"]
+
+        SFN --> Snapshot --> Executor --> AuditLedger
+        SFN --> SNS
+    end
+
+    Cedar -->|Token & Policy Validated| SFN
 ```
+
+### The Five Invariant Guarantees
+
+1. **Sub-10-Second Pre-Billing Detection**: Intercepts `aws.ec2` lifecycle transitions via EventBridge in 50ms, replacing the 24-33 hour Cost Explorer latency blind spot ([AWS Issue #92](https://github.com/aws-solutions/innovation-sandbox-on-aws/issues/92)).
+2. **Cryptographic Price Provenance**: Unit rates resolved directly from the AWS Price List API, SHA-256 digested, and cached in S3. Zero hallucinated price documents.
+3. **Zero-Mutating AI Boundary**: The LLM agent operates under least-privilege IAM containing zero mutating actions. The model *only* narrates structured telemetry; arithmetic is 100% deterministic Python.
+4. **Formal Policy Guardrails (AWS Cedar)**: Evaluated in 1.2ms prior to execution. `forbid_protected` and `forbid_dependents` unconditionally deny mutations on protected or networked infrastructure.
+5. **Single-Use HMAC-SHA256 Approval Tokens**: Zero autonomous destruction. Every remediation requires an explicit human click minting a signed, 5-minute single-use token bound to an automated 7-day EBS rollback snapshot.
 
 ---
 

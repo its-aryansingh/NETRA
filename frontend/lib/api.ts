@@ -17,13 +17,13 @@ import {
 
 const _RAW_BASE = (process.env.NEXT_PUBLIC_API_BASE || "").trim();
 
-function getApiBase(): string {
-  if (process.env.NEXT_PUBLIC_DEMO !== "1" && !_RAW_BASE) {
-    throw new Error(
-      "NEXT_PUBLIC_API_BASE is not set. " +
-      "When running in live mode (NEXT_PUBLIC_DEMO !== '1'), you must configure NEXT_PUBLIC_API_BASE " +
-      "pointing to your deployed API Gateway endpoint (e.g. https://<api-id>.execute-api.ap-south-1.amazonaws.com)."
-    );
+export function getApiBase(): string {
+  if (typeof window !== "undefined") {
+    const custom = window.localStorage.getItem("netra_live_api_url");
+    if (custom && custom.trim()) {
+      const clean = custom.trim().replace(/\/+$/, "");
+      return clean.endsWith("/api") ? clean : `${clean}/api`;
+    }
   }
 
   if (_RAW_BASE) {
@@ -31,15 +31,31 @@ function getApiBase(): string {
     return clean.endsWith("/api") ? clean : `${clean}/api`;
   }
 
+  if (process.env.NEXT_PUBLIC_DEMO !== "1" && !_RAW_BASE) {
+    if (typeof window !== "undefined" && !isDemoMode()) {
+      throw new Error(
+        "NEXT_PUBLIC_API_BASE is not set. " +
+        "When running in live mode (NEXT_PUBLIC_DEMO !== '1'), you must configure NEXT_PUBLIC_API_BASE " +
+        "pointing to your deployed API Gateway endpoint (e.g. https://<api-id>.execute-api.ap-south-1.amazonaws.com)."
+      );
+    }
+  }
+
   return "/api";
 }
 
-const API_BASE = getApiBase();
+// Dynamically evaluates getApiBase() on every template string interpolation
+const API_BASE = {
+  toString: () => getApiBase(),
+  valueOf: () => getApiBase(),
+};
 
 export function isDemoMode(): boolean {
   if (typeof window !== "undefined") {
     const override = window.localStorage.getItem("netra_demo_mode");
     if (override !== null) return override === "true";
+    // If a custom live AWS API URL is configured, default to live mode
+    if (window.localStorage.getItem("netra_live_api_url")) return false;
   }
   return process.env.NEXT_PUBLIC_DEMO === "1";
 }
@@ -48,6 +64,54 @@ export function setDemoMode(active: boolean): void {
   if (typeof window !== "undefined") {
     window.localStorage.setItem("netra_demo_mode", String(active));
     window.location.reload();
+  }
+}
+
+export function getConnectedAwsAccount(): { accountId: string; region: string; endpoint: string } | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem("netra_aws_account");
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function setConnectedAwsAccount(info: { accountId: string; region: string; endpoint: string } | null): void {
+  if (typeof window === "undefined") return;
+  if (!info) {
+    window.localStorage.removeItem("netra_aws_account");
+    window.localStorage.removeItem("netra_live_api_url");
+    window.localStorage.removeItem("netra_demo_mode");
+  } else {
+    window.localStorage.setItem("netra_aws_account", JSON.stringify(info));
+    if (info.endpoint) {
+      window.localStorage.setItem("netra_live_api_url", info.endpoint);
+    }
+    window.localStorage.setItem("netra_demo_mode", "false");
+  }
+}
+
+export async function testAwsConnection(endpoint: string): Promise<{ ok: boolean; message: string; latency_ms?: number; burn_inr_hour?: number }> {
+  const t0 = performance.now();
+  try {
+    const clean = endpoint.trim().replace(/\/+$/, "");
+    const url = clean.endsWith("/api") ? `${clean}/summary` : `${clean}/api/summary`;
+    const res = await fetch(url, { headers: { "Content-Type": "application/json" } });
+    const latency = Math.round(performance.now() - t0);
+    if (!res.ok) {
+      return { ok: false, message: `HTTP ${res.status}: Received error response from endpoint.` };
+    }
+    const data = await res.json();
+    return {
+      ok: true,
+      message: `Connected successfully (${latency}ms). Active burn: ₹${data.burn_inr_hour || 0}/hr`,
+      latency_ms: latency,
+      burn_inr_hour: data.burn_inr_hour,
+    };
+  } catch (err: any) {
+    return { ok: false, message: err.message || "Network error. Check CORS configuration or URL." };
   }
 }
 
