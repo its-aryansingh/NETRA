@@ -95,9 +95,13 @@ def _generate_model_narrative(
     model_id: str,
 ) -> Dict[str, Any]:
     """Attempt live model invocation or use fixture baseline if offline."""
-    # If Bedrock or Ollama is available, try it; otherwise use fixture's realistic raw control narrative
     try:
-        if os.getenv("NETRA_BEDROCK_AVAILABLE") == "1":
+        if os.getenv("OPENAI_API_KEY"):
+            from netra.agent.investigator import _invoke_openai
+            from netra.agent.prompt import build_investigation_prompt
+            prompt = build_investigation_prompt(finding, evidence, dependents_count=fixture.get("dependents_count", 0))
+            return _invoke_openai(prompt, model=os.getenv("NETRA_OPENAI_MODEL", "gpt-4o-mini"))
+        elif os.getenv("NETRA_BEDROCK_AVAILABLE") == "1":
             import boto3
             sess = boto3.Session()
             client = sess.client("bedrock-runtime", region_name="ap-south-1")

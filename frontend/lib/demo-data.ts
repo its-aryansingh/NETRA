@@ -45,7 +45,7 @@ export interface FindingItem {
     steps: Array<{ api: string; why: string }>;
   };
   agent_trace?: Array<{ tool: string; ms: number; span_id?: string }>;
-  narrative_source?: "bedrock" | "ollama" | "fallback";
+  narrative_source?: "openai" | "bedrock" | "ollama" | "fallback";
 }
 
 export interface AuditEntry {
@@ -244,9 +244,9 @@ export const DEMO_FINDINGS: FindingItem[] = [
       { tool: "get_resource_details", ms: 48, span_id: "span-02b" },
       { tool: "get_cloudwatch_utilization", ms: 112, span_id: "span-03c" },
       { tool: "find_dependents", ms: 36, span_id: "span-04d" },
-      { tool: "model_converse (Claude 3.7 Sonnet)", ms: 612, span_id: "span-05e" },
+      { tool: "model_converse (OpenAI gpt-4o-mini)", ms: 412, span_id: "span-05e" },
     ],
-    narrative_source: "bedrock",
+    narrative_source: "openai",
   },
   {
     finding_id: "01J8ORPHANEDB0000000000001",
@@ -333,9 +333,9 @@ export const DEMO_FINDINGS: FindingItem[] = [
     agent_trace: [
       { tool: "get_finding", ms: 2 },
       { tool: "get_resource_details", ms: 38 },
-      { tool: "model_converse", ms: 490 },
+      { tool: "model_converse", ms: 380 },
     ],
-    narrative_source: "bedrock",
+    narrative_source: "openai",
   },
 ];
 

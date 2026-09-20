@@ -298,7 +298,7 @@ export async function simulateRunaway(): Promise<{ status: string; finding_id: s
       { tool: "find_dependents", ms: 28 },
       { tool: "model_converse", ms: 520 },
     ],
-    narrative_source: "bedrock",
+    narrative_source: "openai",
   };
 
   clientResources.unshift(runawayRes);

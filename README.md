@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/its-aryansingh/NETRA/actions/workflows/ci.yml/badge.svg)](https://github.com/its-aryansingh/NETRA/actions)
 [![make verify](https://img.shields.io/badge/make%20verify-Passed%20(1.23s)-46D6A0?style=flat-square)](#reproduce-it-in-90-seconds)
-[![Tests Passing](https://img.shields.io/badge/Tests-124%2F124%20Passing-46D6A0?style=flat-square)](backend/tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-130%2F130%20Passing-46D6A0?style=flat-square)](backend/tests/)
 [![Live Demo](https://img.shields.io/badge/Live%20Cockpit-Amplify%20Hosting-blue?style=flat-square)](https://main.d123456789.amplifyapp.com)
 [![Demo Video](https://img.shields.io/badge/Demo%20Video-YouTube-red?style=flat-square)](#-3-minute-demo-video)
 [![License: MIT](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)](LICENSE)
@@ -29,7 +29,7 @@ Live interactive cockpit: https://main.d123456789.amplifyapp.com.
 | Pillar | Technical Implementation | Impact / Guarantee |
 |:---|:---|:---|
 | **Real-Time Detection** | Dual-path EventBridge architecture: sub-10s reactive fast path (`aws.ec2` state change) + 60s proactive multi-region sweep. | Replaces the documented 24-hour AWS Cost Explorer latency blind spot with near-instant alerting (<10s). |
-| **Defensive AI Engineering** | Claude 3.7 Sonnet on Bedrock with a zero-tolerance numeric validator (regex AST extraction) + automatic deterministic fallback. | **0% ungrounded hallucinations**: 12/12 adversarial red-team attacks blocked; no untraceable cost or utilization figure can reach the operator. |
+| **Defensive AI Engineering** | OpenAI `gpt-4o-mini` (with Amazon Bedrock / Claude alternative) with a zero-tolerance numeric validator (regex AST extraction) + automatic deterministic fallback. | **0% ungrounded hallucinations**: 12/12 adversarial red-team attacks blocked; no untraceable cost or utilization figure can reach the operator. |
 | **Formal Safety Policies** | AWS Cedar policy engine (`cedarpy`) evaluated in ~1.2ms prior to Step Functions remediation. | Non-bypassable authorization invariants: protected tags (`netra:protected`), active VPC/ENI dependencies, and mandatory EBS snapshot safeguards. |
 | **Serverless Systems Design** | 100% on-demand architecture: AWS Lambda (Python 3.12), SQS with DLQ redrive, DynamoDB (pay-per-request + TTL), S3 SHA-256 price cache, SNS SMS/email alerts. | Zero compute idle cost (<$0.15/month baseline) with production-grade fault isolation and high availability. |
 | **Cryptographic Human-in-the-Loop** | HMAC-SHA256 time-bounded (5 min) single-use approval tokens containing action plan hashes and execution nonces. | Zero autonomous destruction; guarantees mathematical immutability between what the operator approves and what Step Functions executes. |
@@ -38,7 +38,7 @@ Live interactive cockpit: https://main.d123456789.amplifyapp.com.
 ### 🛠 Full Tech Stack Overview
 
 - **Cloud & Infrastructure**: AWS Lambda, EventBridge, SQS + DLQ, SNS, Step Functions, DynamoDB, S3, CloudWatch, AWS SAM, CloudFormation (`cfn-lint`).
-- **AI & Guardrails**: Amazon Bedrock, Anthropic Claude 3.7 Sonnet, AWS Cedar (`cedarpy`), Model Context Protocol (MCP), Strands SDK.
+- **AI & Guardrails**: OpenAI (`gpt-4o-mini`), Amazon Bedrock (Claude 3.7 Sonnet), AWS Cedar (`cedarpy`), Model Context Protocol (MCP), Strands SDK.
 - **Backend & Systems**: Python 3.12, Boto3, PyYAML, HMAC-SHA256 cryptography, Decimal/Float DynamoDB serializers.
 - **Frontend & Cockpit**: Next.js 15, React 19, TypeScript, Tailwind CSS, SVG graphics, Amplify Hosting.
 - **Testing & Quality Assurance**: Pytest, Pytest-Mock, Hypothesis, GitHub Actions CI matrix (parallel backend unit tests, SAM validation, cfn-lint, Next.js typecheck & static build).
@@ -358,7 +358,8 @@ Statement:
 ## Built on AWS
 
 ### Agents and AI
-- **Amazon Bedrock**: Claude 3.7 Sonnet (`temperature=0`) for natural-language root-cause narration with regex numeric validation.
+- **OpenAI API**: `gpt-4o-mini` (`temperature=0.0`, JSON object mode) for fast, cost-efficient natural-language root-cause narration guarded by regex numeric validation.
+- **Amazon Bedrock**: Claude 3.7 Sonnet as enterprise multi-provider alternative (`NETRA_MODEL_PROVIDER=bedrock`).
 - **Strands Agents SDK**: Orchestrates read-only analytical tool execution.
 - **Model Context Protocol (MCP)**: Standardized protocol boundary governing tool access and isolating write operations.
 

@@ -35,11 +35,12 @@ from netra.models import Finding, Narrative
 
 logger = get_logger("netra.agent.investigator")
 
+OPENAI_MODEL_ID = os.getenv("NETRA_OPENAI_MODEL", "gpt-4o-mini")
 BEDROCK_MODEL_ID = os.getenv(
     "NETRA_BEDROCK_MODEL_ID",
     "apac.anthropic.claude-sonnet-4-5-20250929-v1:0"
 )
-MODEL_PROVIDER = os.getenv("NETRA_MODEL_PROVIDER", "bedrock").lower()
+MODEL_PROVIDER = os.getenv("NETRA_MODEL_PROVIDER", "openai").lower()
 
 
 def _update_finding_status(
@@ -90,12 +91,63 @@ def _update_finding_status(
         logger.warning(f"Failed to update finding {finding_id} in DynamoDB: {err}")
 
 
+def _invoke_openai(
+    prompt: str,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Invoke OpenAI Chat Completions API with JSON mode and deterministic temperature."""
+    import urllib.request
+
+    key = (api_key or os.getenv("OPENAI_API_KEY") or "").strip()
+    if not key:
+        raise ValueError("OPENAI_API_KEY environment variable is not configured")
+
+    target_model = model or OPENAI_MODEL_ID
+    endpoint = (base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
+    url = f"{endpoint}/chat/completions"
+
+    payload = {
+        "model": target_model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.0,
+        "response_format": {"type": "json_object"},
+    }
+
+    req_data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=req_data,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {key}",
+            "User-Agent": "NETRA-Investigator/1.0",
+        },
+    )
+
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+        content = data["choices"][0]["message"]["content"]
+        cleaned = content.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.splitlines()
+            cleaned = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+        return json.loads(cleaned)
+
+
 def _invoke_llm(
     prompt: str,
     session: Optional[boto3.Session] = None,
     region: str = REGION,
 ) -> Dict[str, Any]:
-    """Invoke Claude Sonnet on Amazon Bedrock or Ollama locally."""
+    """Invoke configured LLM provider (OpenAI gpt-4o-mini, Bedrock, or Ollama)."""
+    if MODEL_PROVIDER == "openai":
+        return _invoke_openai(prompt)
+
     if MODEL_PROVIDER == "ollama":
         import urllib.request
         req_data = json.dumps({
@@ -114,28 +166,31 @@ def _invoke_llm(
             data = json.loads(resp.read().decode("utf-8"))
             return json.loads(data["response"])
 
-    # Default to Amazon Bedrock Converse API
-    sess = session or boto3.Session(region_name=region)
-    bedrock = sess.client("bedrock-runtime", region_name=region)
+    if MODEL_PROVIDER in ("bedrock", "anthropic"):
+        sess = session or boto3.Session(region_name=region)
+        bedrock = sess.client("bedrock-runtime", region_name=region)
 
-    messages = [
-        {"role": "user", "content": [{"text": prompt}]}
-    ]
+        messages = [
+            {"role": "user", "content": [{"text": prompt}]}
+        ]
 
-    resp = bedrock.converse(
-        modelId=BEDROCK_MODEL_ID,
-        system=[{"text": SYSTEM_PROMPT}],
-        messages=messages,
-        inferenceConfig={"temperature": 0.0, "maxTokens": 1000},
-    )
+        resp = bedrock.converse(
+            modelId=BEDROCK_MODEL_ID,
+            system=[{"text": SYSTEM_PROMPT}],
+            messages=messages,
+            inferenceConfig={"temperature": 0.0, "maxTokens": 1000},
+        )
 
-    output_text = resp["output"]["message"]["content"][0]["text"]
-    # Strip markdown block quotes if model wrapped output
-    cleaned = output_text.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.splitlines()
-        cleaned = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
-    return json.loads(cleaned)
+        output_text = resp["output"]["message"]["content"][0]["text"]
+        # Strip markdown block quotes if model wrapped output
+        cleaned = output_text.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.splitlines()
+            cleaned = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+        return json.loads(cleaned)
+
+    # Default fallback to OpenAI
+    return _invoke_openai(prompt)
 
 
 def investigate_finding(

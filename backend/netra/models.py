@@ -197,7 +197,7 @@ class Finding:
     detected_at: int  # epoch seconds
     account_id: str = "default"
     narrative: Optional[Narrative] = None
-    narrative_source: Optional[str] = None  # "bedrock" | "ollama" | "fallback"
+    narrative_source: Optional[str] = None  # "openai" | "bedrock" | "ollama" | "fallback"
     agent_trace: Optional[List[Dict[str, Any]]] = None
     detection_path: str = "sweep"  # "fast" | "sweep"
     detection_latency_ms: Optional[int] = None

@@ -2,7 +2,7 @@ import React from "react";
 
 interface AgentNarrativeProps {
   paragraphs: string[];
-  narrativeSource?: "bedrock" | "ollama" | "fallback";
+  narrativeSource?: "openai" | "bedrock" | "ollama" | "fallback";
 }
 
 function renderFormattedText(text: string): React.ReactNode[] {
@@ -34,7 +34,7 @@ function renderFormattedText(text: string): React.ReactNode[] {
 
 export default function AgentNarrative({
   paragraphs,
-  narrativeSource = "bedrock",
+  narrativeSource = "openai",
 }: AgentNarrativeProps) {
   return (
     <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[14px] p-6 mb-6">
@@ -60,12 +60,26 @@ export default function AgentNarrative({
           >
             deterministic narrative
           </span>
+        ) : narrativeSource === "bedrock" ? (
+          <span
+            className="px-2 py-0.5 rounded-[5px] text-[10px] font-mono bg-[var(--mint-bg)] text-[var(--mint)] border border-[var(--mint-line)]"
+            title="Verified Anthropic Claude 3.7 Sonnet generation at temperature=0"
+          >
+            claude-3.7-sonnet · verified
+          </span>
+        ) : narrativeSource === "ollama" ? (
+          <span
+            className="px-2 py-0.5 rounded-[5px] text-[10px] font-mono bg-[var(--mint-bg)] text-[var(--mint)] border border-[var(--mint-line)]"
+            title="Verified local Ollama generation at temperature=0"
+          >
+            llama3.2 · local
+          </span>
         ) : (
           <span
             className="px-2 py-0.5 rounded-[5px] text-[10px] font-mono bg-[var(--mint-bg)] text-[var(--mint)] border border-[var(--mint-line)]"
-            title="Verified model generation at temperature=0"
+            title="Verified OpenAI gpt-4o-mini generation at temperature=0"
           >
-            claude-3.7-sonnet · verified
+            gpt-4o-mini · verified
           </span>
         )}
       </div>

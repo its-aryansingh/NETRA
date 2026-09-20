@@ -9,6 +9,19 @@ Parameters:
     Type: String
     Default: ""
     Description: "Email address for critical spend notifications via SNS"
+  OpenAiApiKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: "OpenAI API key for root cause narration (gpt-4o-mini)"
+  ModelProvider:
+    Type: String
+    Default: "openai"
+    Description: "Primary LLM provider: openai, bedrock, or ollama"
+  OpenAiModel:
+    Type: String
+    Default: "gpt-4o-mini"
+    Description: "OpenAI model ID for investigation agent"
 
 Conditions:
   HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
@@ -275,6 +288,9 @@ Resources:
           NETRA_SNS_TOPIC_ARN: !Ref NetraCriticalFindingsTopic
           NETRA_ALERT_TOPIC_ARN: !Ref NetraCriticalFindingsTopic
           NETRA_DASHBOARD_URL: "https://main.d123456789.amplifyapp.com"
+          OPENAI_API_KEY: !Ref OpenAiApiKey
+          NETRA_MODEL_PROVIDER: !Ref ModelProvider
+          NETRA_OPENAI_MODEL: !Ref OpenAiModel
       Policies:
         - Statement:
             - Effect: Allow

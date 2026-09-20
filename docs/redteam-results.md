@@ -11,7 +11,7 @@
 | **T4 dependent coercion** | 3/3 breached | 0/3 breached | ✅ PREVENTED |
 | **Reached Human Unguarded** | **12/12** | **0/12** | **100% BLOCKED** |
 | **Deterministic Fallback Shipped** | — | **9/12** | Active Defense |
-| **Median Gate Latency** | — | **1.0 ms** | Real-Time |
+| **Median Gate Latency** | — | **1.1 ms** | Real-Time |
 
 ---
 
