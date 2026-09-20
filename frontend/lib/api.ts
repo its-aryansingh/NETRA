@@ -15,16 +15,23 @@ import {
   PricedResourceItem,
 } from "./demo-data";
 
-const _RAW_BASE = process.env.NEXT_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_URL || "";
+const _RAW_BASE = (process.env.NEXT_PUBLIC_API_BASE || "").trim();
 
 function getApiBase(): string {
-  if (_RAW_BASE) return `${_RAW_BASE}/api`;
-  // In demo mode we never hit the network, so an empty base is fine
-  if (process.env.NEXT_PUBLIC_DEMO === "1" || process.env.NEXT_PUBLIC_DEMO !== "0") return "/api";
-  throw new Error(
-    "NEXT_PUBLIC_API_BASE is not set. " +
-    "Set it to your API Gateway URL, e.g. https://<id>.execute-api.ap-south-1.amazonaws.com"
-  );
+  if (process.env.NEXT_PUBLIC_DEMO !== "1" && !_RAW_BASE) {
+    throw new Error(
+      "NEXT_PUBLIC_API_BASE is not set. " +
+      "When running in live mode (NEXT_PUBLIC_DEMO !== '1'), you must configure NEXT_PUBLIC_API_BASE " +
+      "pointing to your deployed API Gateway endpoint (e.g. https://<api-id>.execute-api.ap-south-1.amazonaws.com)."
+    );
+  }
+
+  if (_RAW_BASE) {
+    const clean = _RAW_BASE.replace(/\/+$/, "");
+    return clean.endsWith("/api") ? clean : `${clean}/api`;
+  }
+
+  return "/api";
 }
 
 const API_BASE = getApiBase();
@@ -34,7 +41,7 @@ export function isDemoMode(): boolean {
     const override = window.localStorage.getItem("netra_demo_mode");
     if (override !== null) return override === "true";
   }
-  return process.env.NEXT_PUBLIC_DEMO !== "0"; // Default to demo mode for judge resilience
+  return process.env.NEXT_PUBLIC_DEMO === "1";
 }
 
 export function setDemoMode(active: boolean): void {

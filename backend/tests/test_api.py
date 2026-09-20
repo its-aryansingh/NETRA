@@ -236,3 +236,33 @@ def test_404_not_found(mock_session):
     assert resp["statusCode"] == 404
     body = json.loads(resp["body"])
     assert body["code"] == "NOT_FOUND"
+    assert resp["headers"]["Access-Control-Allow-Origin"] == "*"
+
+
+def test_error_path_returns_cors_headers(mock_session, monkeypatch):
+    """Verify 404 and 500 error paths return CORS headers to prevent browser CORS masking."""
+    # 404 path
+    event_404 = {
+        "rawPath": "/api/unknown-endpoint",
+        "requestContext": {"http": {"method": "GET"}},
+    }
+    resp_404 = lambda_handler(event_404, None, session=mock_session)
+    assert resp_404["statusCode"] == 404
+    assert resp_404["headers"]["Access-Control-Allow-Origin"] == "*"
+    assert "content-type" in resp_404["headers"]["Access-Control-Allow-Headers"].lower()
+    assert "authorization" in resp_404["headers"]["Access-Control-Allow-Headers"].lower()
+
+    # 500 path
+    monkeypatch.setattr("netra.api.handle_summary", MagicMock(side_effect=RuntimeError("Handler crashed")))
+    event_500 = {
+        "rawPath": "/api/summary",
+        "requestContext": {"http": {"method": "GET"}},
+    }
+    resp_500 = lambda_handler(event_500, None, session=mock_session)
+    assert resp_500["statusCode"] == 500
+    assert resp_500["headers"]["Access-Control-Allow-Origin"] == "*"
+    assert "content-type" in resp_500["headers"]["Access-Control-Allow-Headers"].lower()
+    assert "authorization" in resp_500["headers"]["Access-Control-Allow-Headers"].lower()
+    body_500 = json.loads(resp_500["body"])
+    assert body_500["code"] == "INTERNAL_ERROR"
+

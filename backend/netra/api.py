@@ -32,7 +32,7 @@ logger = get_logger("netra.api")
 
 CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Amz-Date,X-Api-Key",
+    "Access-Control-Allow-Headers": "content-type,authorization,Content-Type,Authorization,X-Amz-Date,X-Api-Key",
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Content-Type": "application/json",
 }
@@ -62,8 +62,12 @@ def _json_response(status_code: int, data: Any) -> Dict[str, Any]:
 
 
 def _error_response(status_code: int, message: str, code: str = "ERROR") -> Dict[str, Any]:
-    """Format structured error response."""
-    return _json_response(status_code, {"error": message, "code": code})
+    """Format structured error response with CORS headers guaranteed."""
+    return {
+        "statusCode": status_code,
+        "headers": CORS_HEADERS,
+        "body": json.dumps({"error": message, "code": code}),
+    }
 
 
 # -----------------------------------------------------------------------------
@@ -910,27 +914,32 @@ def handle_rollback(event: Dict[str, Any], context: Any = None, finding_id: str 
 
 def lambda_handler(event: Dict[str, Any], context: Any, session: Optional[boto3.Session] = None) -> Dict[str, Any]:
     """Central router for all NETRA API requests."""
-    method = (
-        event.get("requestContext", {}).get("http", {}).get("method")
-        or event.get("httpMethod")
-        or "GET"
-    ).upper()
-
-    path = event.get("rawPath") or event.get("path") or "/"
-
-    # Handle CORS preflight
-    if method == "OPTIONS":
-        return {
-            "statusCode": 200,
-            "headers": CORS_HEADERS,
-            "body": "",
-        }
-
-    # Normalize trailing slashes
-    if path.endswith("/") and len(path) > 1:
-        path = path[:-1]
-
+    method = "GET"
+    path = "/"
     try:
+        if not isinstance(event, dict):
+            event = {}
+
+        method = (
+            event.get("requestContext", {}).get("http", {}).get("method")
+            or event.get("httpMethod")
+            or "GET"
+        ).upper()
+
+        path = event.get("rawPath") or event.get("path") or "/"
+
+        # Handle CORS preflight
+        if method == "OPTIONS":
+            return {
+                "statusCode": 200,
+                "headers": CORS_HEADERS,
+                "body": "",
+            }
+
+        # Normalize trailing slashes
+        if path.endswith("/") and len(path) > 1:
+            path = path[:-1]
+
         # Route dispatch
         if method == "GET" and path == "/api/summary":
             return handle_summary(event, context, session=session)
