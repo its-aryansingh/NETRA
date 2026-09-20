@@ -34,6 +34,14 @@ deploy:
 	@echo "==> Deploying SAM application to AWS ap-south-1..."
 	cd infra && sam deploy
 
+server:
+	@echo "==> Starting NETRA API Server..."
+	PYTHONPATH=backend $(PYTHON) -m netra.server
+
+connect-aws:
+	@echo "==> Testing & connecting to AWS services..."
+	PYTHONPATH=backend $(PYTHON) scripts/connect_aws.py
+
 collect:
 	@echo "==> Running NETRA collector locally..."
 	PYTHONPATH=backend $(PYTHON) -m netra.collector

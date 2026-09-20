@@ -158,6 +158,19 @@ export function getAuthHeaders(extra: Record<string, string> = {}): Record<strin
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
+
+  if (typeof window !== "undefined") {
+    const akid = window.sessionStorage.getItem("netra_aws_akid");
+    const secret = window.sessionStorage.getItem("netra_aws_secret");
+    const sessionToken = window.sessionStorage.getItem("netra_aws_session_token");
+    const acc = getConnectedAwsAccount();
+
+    if (akid) headers["X-Aws-Access-Key-Id"] = akid;
+    if (secret) headers["X-Aws-Secret-Access-Key"] = secret;
+    if (sessionToken) headers["X-Aws-Session-Token"] = sessionToken;
+    if (acc?.region) headers["X-Aws-Region"] = acc.region;
+  }
+
   return headers;
 }
 
@@ -239,7 +252,7 @@ export async function getSummary() {
   if (isDemoMode()) return clientSummary;
 
   try {
-    const res = await fetch(`${API_BASE}/summary`);
+    const res = await fetch(`${API_BASE}/summary`, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -252,7 +265,7 @@ export async function getBurn(hours: number = 24) {
   if (isDemoMode()) return clientBurn;
 
   try {
-    const res = await fetch(`${API_BASE}/burn?hours=${hours}`);
+    const res = await fetch(`${API_BASE}/burn?hours=${hours}`, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -271,7 +284,7 @@ export async function getInventory(): Promise<{ resources: PricedResourceItem[];
   }
 
   try {
-    const res = await fetch(`${API_BASE}/inventory`);
+    const res = await fetch(`${API_BASE}/inventory`, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -294,7 +307,7 @@ export async function getFindings(status: string = "open"): Promise<{ findings: 
   }
 
   try {
-    const res = await fetch(`${API_BASE}/findings?status=${status}`);
+    const res = await fetch(`${API_BASE}/findings?status=${status}`, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -310,7 +323,7 @@ export async function getFinding(id: string): Promise<FindingItem | null> {
   }
 
   try {
-    const res = await fetch(`${API_BASE}/findings/${id}`);
+    const res = await fetch(`${API_BASE}/findings/${id}`, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -435,7 +448,7 @@ export async function getAudit(limit: number = 50): Promise<{ entries: AuditEntr
   }
 
   try {
-    const res = await fetch(`${API_BASE}/audit?limit=${limit}`);
+    const res = await fetch(`${API_BASE}/audit?limit=${limit}`, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {

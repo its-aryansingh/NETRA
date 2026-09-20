@@ -266,3 +266,20 @@ def test_error_path_returns_cors_headers(mock_session, monkeypatch):
     body_500 = json.loads(resp_500["body"])
     assert body_500["code"] == "INTERNAL_ERROR"
 
+
+def test_extract_boto_session_from_headers():
+    """Verify _extract_boto_session dynamically reads IAM headers."""
+    from netra.api import _extract_boto_session
+    event = {
+        "headers": {
+            "x-aws-access-key-id": "AKIAIOSFODNN7EXAMPLE",
+            "x-aws-secret-access-key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            "x-aws-region": "eu-west-1",
+        }
+    }
+    sess = _extract_boto_session(event)
+    assert sess.region_name == "eu-west-1"
+    creds = sess.get_credentials()
+    assert creds.access_key == "AKIAIOSFODNN7EXAMPLE"
+
+

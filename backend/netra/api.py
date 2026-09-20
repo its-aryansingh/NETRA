@@ -86,13 +86,35 @@ def _error_response(status_code: int, message: str, code: str = "ERROR") -> Dict
     }
 
 
+def _extract_boto_session(event: Dict[str, Any]) -> boto3.Session:
+    """Extract AWS session from event headers or environment variables.
+
+    Enables live dynamic authentication when connecting AWS accounts via the web cockpit
+    or using IAM credentials passed in request headers.
+    """
+    headers = {str(k).lower(): str(v) for k, v in (event.get("headers") or {}).items()}
+    akid = headers.get("x-aws-access-key-id") or os.getenv("AWS_ACCESS_KEY_ID")
+    secret = headers.get("x-aws-secret-access-key") or os.getenv("AWS_SECRET_ACCESS_KEY")
+    token = headers.get("x-aws-session-token") or os.getenv("AWS_SESSION_TOKEN")
+    region = headers.get("x-aws-region") or os.getenv("AWS_DEFAULT_REGION") or REGION
+
+    if akid and secret:
+        return boto3.Session(
+            aws_access_key_id=akid,
+            aws_secret_access_key=secret,
+            aws_session_token=token if token else None,
+            region_name=region,
+        )
+    return boto3.Session(region_name=region)
+
+
 # -----------------------------------------------------------------------------
 # Route Handlers
 # -----------------------------------------------------------------------------
 
 def handle_summary(event: Dict[str, Any], context: Any = None, session: Optional[boto3.Session] = None) -> Dict[str, Any]:
     """GET /api/summary"""
-    sess = session or boto3.Session(region_name=REGION)
+    sess = session or _extract_boto_session(event)
     credits_initial_usd = float(os.getenv("NETRA_CREDITS_INITIAL_USD", "200.0"))
     credits_usd = float(os.getenv("NETRA_CREDITS_REMAINING_USD", "200.0"))
     now = int(time.time())
@@ -105,7 +127,7 @@ def handle_summary(event: Dict[str, Any], context: Any = None, session: Optional
     total_prices = 0
 
     try:
-        dynamo = sess.client("dynamodb", region_name=REGION)
+        dynamo = sess.client("dynamodb", region_name=sess.region_name or REGION)
         # Read latest burn snapshot
         resp = dynamo.query(
             TableName=TABLE_BURN_SNAPSHOTS,
@@ -129,8 +151,31 @@ def handle_summary(event: Dict[str, Any], context: Any = None, session: Optional
             if history:
                 import statistics
                 baseline_inr = round(statistics.median(history), 2)
+        else:
+            # If no snapshots stored in DynamoDB yet, calculate live burn from active resources
+            try:
+                from netra.inventory import collect, total_inr_hour, total_usd_hour
+                live_res = collect(session=sess, region=sess.region_name or REGION)
+                if live_res:
+                    burn_inr = total_inr_hour(live_res)
+                    burn_usd = total_usd_hour(live_res)
+                    baseline_inr = burn_inr
+                    collector_age_s = 0
+            except Exception as live_err:
+                logger.debug(f"Live resource inventory fallback: {live_err}")
     except Exception as err:
         logger.warning(f"Failed to query summary data: {err}")
+        # Fallback to direct EC2/EBS collection if DynamoDB table not found
+        try:
+            from netra.inventory import collect, total_inr_hour, total_usd_hour
+            live_res = collect(session=sess, region=sess.region_name or REGION)
+            if live_res:
+                burn_inr = total_inr_hour(live_res)
+                burn_usd = total_usd_hour(live_res)
+                baseline_inr = burn_inr
+                collector_age_s = 0
+        except Exception:
+            pass
 
     # Query price cache counts
     try:
@@ -1025,6 +1070,7 @@ def handle_auth_keys(event: Dict[str, Any], context: Any = None) -> Dict[str, An
 
 def lambda_handler(event: Dict[str, Any], context: Any, session: Optional[boto3.Session] = None) -> Dict[str, Any]:
     """Central router for all NETRA API requests."""
+    sess = session or _extract_boto_session(event)
     method = "GET"
     path = "/"
     try:
@@ -1053,65 +1099,65 @@ def lambda_handler(event: Dict[str, Any], context: Any, session: Optional[boto3.
 
         # Route dispatch
         if method == "GET" and path == "/api/summary":
-            return handle_summary(event, context, session=session)
+            return handle_summary(event, context, session=sess)
 
         if method == "GET" and path == "/api/burn":
-            return handle_burn(event, context, session=session)
+            return handle_burn(event, context, session=sess)
 
         if method == "GET" and path == "/api/inventory":
-            return handle_inventory(event, context, session=session)
+            return handle_inventory(event, context, session=sess)
 
         if method == "GET" and path == "/api/findings":
-            return handle_findings_list(event, context, session=session)
+            return handle_findings_list(event, context, session=sess)
 
         if method == "GET" and path == "/api/forecast":
-            return handle_forecast(event, context, session=session)
+            return handle_forecast(event, context, session=sess)
 
         if method == "GET" and path == "/api/governance":
-            return handle_governance(event, context, session=session)
+            return handle_governance(event, context, session=sess)
 
         if method == "GET" and path == "/api/accounts":
-            return handle_accounts(event, context, session=session)
+            return handle_accounts(event, context, session=sess)
 
         if method == "POST" and path == "/api/alerts/test-webhook":
-            return handle_test_webhook(event, context, session=session)
+            return handle_test_webhook(event, context, session=sess)
 
         # /api/findings/{id}
         m_detail = re.match(r"^/api/findings/([a-zA-Z0-9_-]+)$", path)
         if method == "GET" and m_detail:
-            return handle_finding_detail(event, context, finding_id=m_detail.group(1), session=session)
+            return handle_finding_detail(event, context, finding_id=m_detail.group(1), session=sess)
 
         # /api/findings/{id}/approve
         m_app = re.match(r"^/api/findings/([a-zA-Z0-9_-]+)/approve$", path)
         if method == "POST" and m_app:
-            return handle_approve(event, context, finding_id=m_app.group(1), session=session)
+            return handle_approve(event, context, finding_id=m_app.group(1), session=sess)
 
         # /api/findings/{id}/dismiss
         m_dis = re.match(r"^/api/findings/([a-zA-Z0-9_-]+)/dismiss$", path)
         if method == "POST" and m_dis:
-            return handle_dismiss(event, context, finding_id=m_dis.group(1), session=session)
+            return handle_dismiss(event, context, finding_id=m_dis.group(1), session=sess)
 
         # /api/findings/{id}/snooze
         m_snz = re.match(r"^/api/findings/([a-zA-Z0-9_-]+)/snooze$", path)
         if method == "POST" and m_snz:
-            return handle_snooze(event, context, finding_id=m_snz.group(1), session=session)
+            return handle_snooze(event, context, finding_id=m_snz.group(1), session=sess)
 
         if method == "GET" and path == "/api/audit":
-            return handle_audit(event, context, session=session)
+            return handle_audit(event, context, session=sess)
 
         if method == "GET" and path == "/api/audit/by-cause":
-            return handle_audit_by_cause(event, context, session=session)
+            return handle_audit_by_cause(event, context, session=sess)
 
         # /api/audit/{id}/rollback
         m_roll = re.match(r"^/api/audit/([a-zA-Z0-9_-]+)/rollback$", path)
         if method == "POST" and m_roll:
-            return handle_rollback(event, context, finding_id=m_roll.group(1), session=session)
+            return handle_rollback(event, context, finding_id=m_roll.group(1), session=sess)
 
         if method == "GET" and path == "/api/verify":
-            return handle_verify(event, context, session=session)
+            return handle_verify(event, context, session=sess)
 
         if method == "POST" and path == "/api/demo/simulate":
-            return handle_demo_simulate(event, context, session=session)
+            return handle_demo_simulate(event, context, session=sess)
 
         # Authentication & RBAC Routes (eauth)
         if method == "POST" and path == "/api/auth/login":
