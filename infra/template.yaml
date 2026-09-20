@@ -38,6 +38,7 @@ Globals:
         NETRA_TABLE_PRICE_CACHE: !Ref NetraPriceCacheTable
         NETRA_TABLE_FINDINGS: !Ref NetraFindingsTable
         NETRA_TABLE_AUDIT_LOG: !Ref NetraAuditLogTable
+        NETRA_TABLE_AUTH_KEYS: !Ref NetraAuthKeysTable
         NETRA_USD_INR: "88.50"
         NETRA_CREDITS_INITIAL_USD: "200.0"
         NETRA_CREDITS_REMAINING_USD: "200.0"
@@ -130,6 +131,25 @@ Resources:
           KeyType: HASH
         - AttributeName: sk
           KeyType: RANGE
+
+  NetraAuthKeysTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: netra_auth_keys
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
 
   # ----------------------------------------------------------------------------
   # S3 Provenance Storage (Prompt G: Hashed Price Documents)

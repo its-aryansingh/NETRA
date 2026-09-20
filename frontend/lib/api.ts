@@ -115,6 +115,119 @@ export async function testAwsConnection(endpoint: string): Promise<{ ok: boolean
   }
 }
 
+// ----------------------------------------------------------------------------
+// Enterprise Auth & RBAC State (eauth)
+// ----------------------------------------------------------------------------
+
+export interface UserProfile {
+  user_id: string;
+  role: "admin" | "operator" | "viewer";
+  name: string;
+  token?: string;
+  permissions?: string[];
+  auth_type?: string;
+}
+
+const DEFAULT_USER: UserProfile = {
+  user_id: "demo-operator@we-make-devs.org",
+  role: "operator",
+  name: "FinOps SRE Operator",
+  permissions: ["view", "approve", "mutate"],
+  auth_type: "demo_default",
+};
+
+export function getAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem("netra_auth_token");
+}
+
+export function getCurrentUser(): UserProfile {
+  if (typeof window === "undefined") return DEFAULT_USER;
+  const raw = window.localStorage.getItem("netra_user_profile");
+  if (!raw) return DEFAULT_USER;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return DEFAULT_USER;
+  }
+}
+
+export function getAuthHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...extra };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+export async function login(email: string, role: string = "operator", apiKey?: string): Promise<UserProfile> {
+  if (isDemoMode()) {
+    const user: UserProfile = {
+      user_id: email,
+      role: role as any,
+      name: email === "admin@we-make-devs.org" ? "Lead Cloud Architect" : email === "auditor@we-make-devs.org" ? "Compliance Auditor" : "FinOps SRE Operator",
+      token: `demo.jwt.${email.replace(/[^a-zA-Z0-9]/g, "")}`,
+      permissions: role === "admin" ? ["view", "approve", "mutate", "admin"] : role === "operator" ? ["view", "approve", "mutate"] : ["view"],
+      auth_type: apiKey ? "api_key" : "bearer",
+    };
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("netra_user_profile", JSON.stringify(user));
+      window.localStorage.setItem("netra_auth_token", user.token || "");
+    }
+    return user;
+  }
+
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, role, api_key: apiKey }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  const user: UserProfile = {
+    user_id: data.user.email,
+    role: data.user.role,
+    name: data.user.name,
+    token: data.token,
+    permissions: data.user.permissions,
+    auth_type: "bearer",
+  };
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem("netra_user_profile", JSON.stringify(user));
+    window.localStorage.setItem("netra_auth_token", data.token);
+  }
+  return user;
+}
+
+export function logout(): void {
+  if (typeof window !== "undefined") {
+    window.localStorage.removeItem("netra_user_profile");
+    window.localStorage.removeItem("netra_auth_token");
+  }
+}
+
+export async function generateApiKey(): Promise<{ ok: boolean; api_key: string; key_hash: string }> {
+  if (isDemoMode()) {
+    const dummyKey = `netra_live_${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`;
+    return {
+      ok: true,
+      api_key: dummyKey,
+      key_hash: `sha256_${dummyKey.slice(0, 16)}`,
+    };
+  }
+
+  const res = await fetch(`${API_BASE}/auth/keys`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
 // Client-side mutable store for interactive demo mode (approving, simulating)
 let clientFindings = [...DEMO_FINDINGS];
 let clientResources = [...DEMO_RESOURCES];
@@ -234,8 +347,14 @@ export async function approveFinding(id: string): Promise<{ execution_arn: strin
     return { execution_arn: `arn:aws:states:ap-south-1:123456789012:execution:netra-remediate:${id}`, status: "EXECUTING" };
   }
 
-  const res = await fetch(`${API_BASE}/findings/${id}/approve`, { method: "POST" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const res = await fetch(`${API_BASE}/findings/${id}/approve`, {
+    method: "POST",
+    headers: getAuthHeaders({ "Content-Type": "application/json" }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `HTTP ${res.status}`);
+  }
   return await res.json();
 }
 
@@ -246,8 +365,14 @@ export async function dismissFinding(id: string): Promise<{ status: string }> {
     return { status: "DISMISSED" };
   }
 
-  const res = await fetch(`${API_BASE}/findings/${id}/dismiss`, { method: "POST" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const res = await fetch(`${API_BASE}/findings/${id}/dismiss`, {
+    method: "POST",
+    headers: getAuthHeaders({ "Content-Type": "application/json" }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `HTTP ${res.status}`);
+  }
   return await res.json();
 }
 
@@ -260,10 +385,41 @@ export async function snoozeFinding(id: string, hours: number = 2): Promise<{ st
 
   const res = await fetch(`${API_BASE}/findings/${id}/snooze`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ hours }),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
+export async function postRollback(auditId: string, snapshotId: string): Promise<{ ok: boolean; status: string; restored_volume_id?: string; error?: string }> {
+  if (isDemoMode()) {
+    const newVolId = `vol-${Math.random().toString(16).slice(2, 10)}`;
+    clientAudit.unshift({
+      audit_id: `AUD#${Date.now()}#ROLLBACK`,
+      action: "rollback_restore",
+      target_id: snapshotId,
+      approved_by: "lead-architect@we-make-devs.org (Admin)",
+      recovered_month_inr: -1200.0,
+      timestamp: Math.floor(Date.now() / 1000),
+      revert: true,
+      rollback_snapshot_id: snapshotId,
+    });
+    return { ok: true, status: "RESTORED", restored_volume_id: newVolId };
+  }
+
+  const res = await fetch(`${API_BASE}/audit/${auditId}/rollback`, {
+    method: "POST",
+    headers: getAuthHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ snapshot_id: snapshotId }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `HTTP ${res.status}`);
+  }
   return await res.json();
 }
 

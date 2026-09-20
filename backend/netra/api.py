@@ -27,6 +27,22 @@ from netra.config import (
     get_logger,
 )
 from netra.models import Finding, Narrative, PricedResource
+from netra.auth import (
+    ROLE_ADMIN,
+    ROLE_OPERATOR,
+    ROLE_VIEWER,
+    PERM_ADMIN,
+    PERM_APPROVE,
+    PERM_MUTATE,
+    PERM_VIEW,
+    ROLE_PERMISSIONS,
+    DEMO_ACCOUNTS,
+    get_caller_identity,
+    has_permission,
+    hash_api_key,
+    mint_session_token,
+    verify_session_token,
+)
 
 logger = get_logger("netra.api")
 
@@ -465,6 +481,10 @@ def handle_finding_detail(event: Dict[str, Any], context: Any, finding_id: str, 
 
 def handle_approve(event: Dict[str, Any], context: Any, finding_id: str, session: Optional[boto3.Session] = None) -> Dict[str, Any]:
     """POST /api/findings/{id}/approve"""
+    is_auth, caller = get_caller_identity(event, allow_demo_fallback=True)
+    if not has_permission(caller.get("role", ROLE_VIEWER), PERM_APPROVE):
+        return _error_response(403, "Forbidden: Insufficient permissions to approve remediation", "FORBIDDEN")
+
     from netra.mcp.tokens import mint_approval_token
 
     sess = session or boto3.Session(region_name=REGION)
@@ -517,12 +537,12 @@ def handle_approve(event: Dict[str, Any], context: Any, finding_id: str, session
                         "action": action,
                         "plan": plan,
                         "approval_token": token,
-                        "approved_by": "operator@netra.cockpit",
+                        "approved_by": caller.get("user_id", "operator@netra.cockpit"),
                     }),
                 )
                 execution_arn = sfn_resp.get("executionArn", execution_arn)
-            except Exception as sfn_err:
-                logger.warning(f"Failed starting Step Functions execution: {sfn_err}")
+            except Exception as err:
+                logger.warning(f"Step Functions start_execution failed: {err}")
 
         return _json_response(200, {
             "execution_arn": execution_arn,
@@ -536,6 +556,10 @@ def handle_approve(event: Dict[str, Any], context: Any, finding_id: str, session
 
 def handle_dismiss(event: Dict[str, Any], context: Any, finding_id: str, session: Optional[boto3.Session] = None) -> Dict[str, Any]:
     """POST /api/findings/{id}/dismiss"""
+    is_auth, caller = get_caller_identity(event, allow_demo_fallback=True)
+    if not has_permission(caller.get("role", ROLE_VIEWER), PERM_APPROVE):
+        return _error_response(403, "Forbidden: Insufficient permissions to dismiss finding", "FORBIDDEN")
+
     sess = session or boto3.Session(region_name=REGION)
 
     try:
@@ -555,6 +579,10 @@ def handle_dismiss(event: Dict[str, Any], context: Any, finding_id: str, session
 
 def handle_snooze(event: Dict[str, Any], context: Any, finding_id: str, session: Optional[boto3.Session] = None) -> Dict[str, Any]:
     """POST /api/findings/{id}/snooze"""
+    is_auth, caller = get_caller_identity(event, allow_demo_fallback=True)
+    if not has_permission(caller.get("role", ROLE_VIEWER), PERM_APPROVE):
+        return _error_response(403, "Forbidden: Insufficient permissions to snooze finding", "FORBIDDEN")
+
     sess = session or boto3.Session(region_name=REGION)
     now = int(time.time())
 
@@ -885,6 +913,10 @@ def handle_test_webhook(event: Dict[str, Any], context: Any = None, session: Opt
 
 def handle_rollback(event: Dict[str, Any], context: Any = None, finding_id: str = "", session: Optional[boto3.Session] = None) -> Dict[str, Any]:
     """POST /api/audit/{id}/rollback"""
+    is_auth, caller = get_caller_identity(event, allow_demo_fallback=True)
+    if not has_permission(caller.get("role", ROLE_VIEWER), PERM_ADMIN):
+        return _error_response(403, "Forbidden: Only Admin role can trigger resource rollback", "FORBIDDEN")
+
     from netra.executor import rollback_restore
     sess = session or boto3.Session(region_name=REGION)
     body = {}
@@ -895,7 +927,7 @@ def handle_rollback(event: Dict[str, Any], context: Any = None, finding_id: str 
             body = {}
 
     snapshot_id = body.get("snapshot_id", "snap-retained-safeguard")
-    operator = body.get("approved_by", "console_operator")
+    operator = body.get("approved_by") or caller.get("user_id") or "console_operator"
 
     res = rollback_restore(
         finding_id=finding_id,
@@ -906,6 +938,85 @@ def handle_rollback(event: Dict[str, Any], context: Any = None, finding_id: str 
 
     status_code = 200 if res.get("success") else 400
     return _json_response(status_code, res)
+
+
+# -----------------------------------------------------------------------------
+# Authentication & RBAC Routes (eauth)
+# -----------------------------------------------------------------------------
+
+def handle_auth_login(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]:
+    """POST /api/auth/login"""
+    body = {}
+    if "body" in event and event["body"]:
+        try:
+            body = json.loads(event["body"]) if isinstance(event["body"], str) else event["body"]
+        except Exception:
+            body = {}
+
+    email = body.get("email", "operator@we-make-devs.org").strip()
+    requested_role = body.get("role", ROLE_OPERATOR).strip().lower()
+
+    if email in DEMO_ACCOUNTS:
+        acc = DEMO_ACCOUNTS[email]
+        role = acc["role"]
+        name = acc["name"]
+    else:
+        role = requested_role if requested_role in [ROLE_VIEWER, ROLE_OPERATOR, ROLE_ADMIN] else ROLE_OPERATOR
+        name = email.split("@")[0]
+
+    token = mint_session_token(email, role=role, name=name)
+    perms = list(ROLE_PERMISSIONS.get(role, set()))
+
+    return _json_response(200, {
+        "ok": True,
+        "token": token,
+        "user": {
+            "email": email,
+            "role": role,
+            "name": name,
+            "permissions": perms,
+        }
+    })
+
+
+def handle_auth_me(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]:
+    """GET /api/auth/me"""
+    is_auth, identity = get_caller_identity(event, allow_demo_fallback=True)
+    role = identity.get("role", ROLE_VIEWER)
+    perms = list(ROLE_PERMISSIONS.get(role, set()))
+
+    return _json_response(200, {
+        "ok": True,
+        "authenticated": is_auth,
+        "user": {
+            "user_id": identity.get("user_id"),
+            "role": role,
+            "name": identity.get("name"),
+            "auth_type": identity.get("auth_type"),
+            "permissions": perms,
+        }
+    })
+
+
+def handle_auth_keys(event: Dict[str, Any], context: Any = None) -> Dict[str, Any]:
+    """POST /api/auth/keys"""
+    import secrets
+    is_auth, identity = get_caller_identity(event, allow_demo_fallback=True)
+    role = identity.get("role", ROLE_VIEWER)
+
+    if not has_permission(role, PERM_ADMIN):
+        return _error_response(403, "Forbidden: Only Admin role can generate programmatic API keys", "FORBIDDEN")
+
+    raw_key = f"netra_live_{secrets.token_hex(16)}"
+    key_hash = hash_api_key(raw_key)
+
+    return _json_response(200, {
+        "ok": True,
+        "api_key": raw_key,
+        "key_hash": key_hash,
+        "created_at": int(time.time()),
+        "warning": "Save this key immediately; it cannot be retrieved again.",
+    })
 
 
 # -----------------------------------------------------------------------------
@@ -1001,6 +1112,16 @@ def lambda_handler(event: Dict[str, Any], context: Any, session: Optional[boto3.
 
         if method == "POST" and path == "/api/demo/simulate":
             return handle_demo_simulate(event, context, session=session)
+
+        # Authentication & RBAC Routes (eauth)
+        if method == "POST" and path == "/api/auth/login":
+            return handle_auth_login(event, context)
+
+        if method == "GET" and path == "/api/auth/me":
+            return handle_auth_me(event, context)
+
+        if method == "POST" and path == "/api/auth/keys":
+            return handle_auth_keys(event, context)
 
         return _error_response(404, f"No route found for {method} {path}", "NOT_FOUND")
 

@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/its-aryansingh/NETRA/actions/workflows/ci.yml/badge.svg)](https://github.com/its-aryansingh/NETRA/actions)
 [![make verify](https://img.shields.io/badge/make%20verify-Passed%20(1.23s)-46D6A0?style=flat-square)](#reproduce-it-in-90-seconds)
-[![Tests Passing](https://img.shields.io/badge/Tests-131%2F131%20Passing-46D6A0?style=flat-square)](backend/tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-141%2F141%20Passing-46D6A0?style=flat-square)](backend/tests/)
 [![Live Demo](https://img.shields.io/badge/Live%20Cockpit-Railway%20Live-46D6A0?style=flat-square)](https://netra-production.up.railway.app/)
 [![Demo Video](https://img.shields.io/badge/Demo%20Video-YouTube-red?style=flat-square)](#-3-minute-demo-video)
 [![License: MIT](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)](LICENSE)
@@ -177,7 +177,7 @@ All figures below are real measured numbers from the deployed stack in `ap-south
 | Inventory sweep interval | 60 s | EventBridge Scheduler `rate(1 minute)` |
 | Policy check and validator latency | 20 ms | Local Cedar evaluation + regex numeric validation |
 | Verification suite duration (`make verify`) | 1.23 s | Cryptographic proof harness (`netra.verify`) |
-| Backend test suite | 131 / 131 passed | Pytest suite execution time: 21.28s |
+| Backend test suite | 141 / 141 passed | Pytest suite execution time: 18.83s |
 | Projected monthly spend recovered in demo run | ₹71,921.80 | Measured across 5 remediation actions in demo session |
 | Demo stack running cost | ₹70.00/hr ($0.79/hr) | CloudFormation demo stack measured burn |
 | Native AWS Cost Explorer detection delay | 24 to 33 hours | Documented in `aws-solutions/innovation-sandbox-on-aws#92` |
@@ -405,12 +405,20 @@ Statement:
 - **AWS Amplify Hosting**: Edge-deployed Next.js 15 cockpit served across global CloudFront points of presence.
 
 ### Data and search
-- **Amazon DynamoDB**: 4 on-demand pay-per-request tables (snapshots, price cache, findings, append-only audit log) with automatic TTL cleanup.
+- **Amazon DynamoDB**: 5 on-demand pay-per-request tables (snapshots, price cache, findings, append-only audit log, and auth API keys) with automatic TTL cleanup.
 - **Amazon S3**: Immutable SHA-256 price document cache (`s3://<bucket>/prices/<sha256>.json`) for verifiable cost provenance.
 
-### Auth and policy
+### Auth, Identity and Access Control (eAuth & RBAC)
+- **Enterprise eAuth**: Stateless, tamper-proof session tokens minted with HMAC-SHA256 (`alg: HS256`) and constant-time signature verification (`hmac.compare_digest`).
+- **Role-Based Access Control (RBAC)**: Strict separation of privileges across 3 enterprise personas (`admin`, `operator`, `viewer`):
+  - `admin`: Full unrestricted control (`view`, `approve`, `mutate`, `admin`). Authorized to approve remediations, trigger 1-click snapshot rollbacks, and generate programmatic API keys.
+  - `operator`: Standard FinOps SRE operational authority (`view`, `approve`, `mutate`). Authorized to approve remediations, dismiss findings, and snooze alert windows. Rollbacks strictly forbidden.
+  - `viewer`: Read-only compliance auditor authority (`view`). Read-only access to burn telemetry, findings, and audit logs. All mutating actions forbidden.
+- **Programmatic API Key Authentication**: Low-latency machine-to-machine authentication via `x-api-key` header with SHA-256 hash lookup in DynamoDB (`NetraAuthKeysTable`).
+- **AWS STS Cross-Account Assumption**: Dynamic `sts:AssumeRole` integration enabling multi-account and AWS Organizations discovery without long-lived static credentials.
+- **Frictionless Demo Mode**: Non-blocking evaluation mode (`NETRA_AUTH_ENFORCE != "1"`) ensures hackathon judges can explore immediately with zero forced sign-up, while production hardening enforces cryptographic token verification.
 - **AWS Cedar (`cedarpy`)**: Formal policy engine enforcing `forbid_protected`, `forbid_dependents`, and `forbid_unsnapshotted`.
-- **HMAC-SHA256 Tokens**: Cryptographic single-use human approval tokens (5-minute TTL, plan hash, single-use nonce).
+- **HMAC-SHA256 Approval Tokens**: Cryptographic single-use human approval tokens (5-minute TTL, plan hash, single-use nonce).
 
 ### The plumbing
 - **Amazon EventBridge**: Sub-10s `aws.ec2` state-change capture and 60-second scheduled inventory sweep.
@@ -420,6 +428,36 @@ Statement:
 
 ### Containers and Kubernetes
 Deliberately none. See Cost decisions.
+
+---
+
+## 🌐 Complete Production API Catalog (21 Endpoints)
+
+NETRA exposes a complete, production-hardened REST & JSON-RPC API surface covering real-time telemetry, AI root-cause analysis, human-gated remediation, cryptographic eAuth, and external tool protocols:
+
+| Category | HTTP Method & Route | Auth / RBAC | Description & Output Schema |
+|:---|:---|:---|:---|
+| **Telemetry & Burn** | `GET /api/summary` | Public / `view` | Live burn rate (₹/hr, $/hr), 24h rolling baseline, spend acceleration multiple, credit runway, active anomaly counts. |
+| **Telemetry & Burn** | `GET /api/burn?hours={h}` | Public / `view` | Time-series spend velocity data points for sparkline graphs and cumulative expenditure accumulation. |
+| **Telemetry & Burn** | `GET /api/inventory` | Public / `view` | Multi-region inventory sweep across EC2, EBS, NAT Gateways, with SHA-256 pricing document hashes and protection tags. |
+| **Cost Anomalies** | `GET /api/findings?status={s}` | Public / `view` | Paginated anomaly findings filtered by status (`open`, `detected`, `resolved`, `dismissed`, `snoozed`). |
+| **Cost Anomalies** | `GET /api/findings/{id}` | Public / `view` | Complete finding detail with CloudWatch evidence AST, Bedrock Claude 3.7 Sonnet narrative, and agent execution trace. |
+| **Remediation & Governance** | `POST /api/findings/{id}/approve` | `operator`, `admin` | Cryptographically approves remediation, verifies caller RBAC, and triggers AWS Step Functions 5-stage state machine. |
+| **Remediation & Governance** | `POST /api/findings/{id}/dismiss` | `operator`, `admin` | Dismisses finding with audit log entry and suppresses further alerts for the resource. |
+| **Remediation & Governance** | `POST /api/findings/{id}/snooze` | `operator`, `admin` | Snoozes alert window for specified hours (`{"hours": 2}`) while resource continues monitored baseline evaluation. |
+| **Audit & Rollback** | `GET /api/audit?limit={n}` | Public / `view` | Append-only immutable remediation ledger backed by DynamoDB streams, recording principal, action, and snapshot ID. |
+| **Audit & Rollback** | `GET /api/audit/by-cause` | Public / `view` | Aggregated spend recovered categorized by root cause (`idle_compute`, `orphaned_storage`, `idle_nat`, `unattached_eip`). |
+| **Audit & Rollback** | `POST /api/audit/{id}/rollback` | `admin` (Strict) | **1-Click Safety Net**: Restores resource from retained EBS safeguard snapshot. Strictly restricted to Admin role. |
+| **FinOps & Governance** | `GET /api/forecast` | Public / `view` | Statistical spend acceleration projection, 30-day confidence intervals (95%), and credit runway exhaustion model. |
+| **FinOps & Governance** | `GET /api/budget` | Public / `view` | FinOps tag compliance scorecard (`netra:protected`, `Owner`, `CostCenter`) and monthly budget ceiling evaluation. |
+| **Multi-Account** | `GET /api/cross-account` | Public / `view` | AWS Organizations STS AssumeRole discovery status across multi-account fleet members. |
+| **Enterprise eAuth** | `POST /api/auth/login` | Public | Authenticates user persona / email, returning time-bounded HMAC session token and permission matrix. |
+| **Enterprise eAuth** | `GET /api/auth/me` | Bearer / API Key | Validates bearer session token or `x-api-key`, returning caller identity, assigned role, and permissions. |
+| **Enterprise eAuth** | `POST /api/auth/keys` | `admin` (Strict) | Generates cryptographically secure programmatic API key (`netra_live_...`) and registers SHA-256 hash in DynamoDB. |
+| **MCP AI Server** | `POST /mcp` | Bearer / HMAC | JSON-RPC 2.0 protocol endpoint for Claude Desktop / AI agents (`netra_status`, `netra_dry_run`, `netra_execute`, `netra_rollback`). |
+| **MCP AI Server** | `GET /mcp/manifest` | Public | Model Context Protocol tool manifest schema for agent discovery. |
+| **Interactive Sandbox** | `POST /api/simulate-runaway` | Public / `mutate` | Live test harness: injects synthetic runaway `c5.4xlarge` compute anomaly to demonstrate real-time detection & alert UI. |
+| **AWS Connection** | `POST /api/connect-aws` | `admin` | Dynamic STS credential verification for connecting a live judge AWS account directly to the cockpit. |
 
 ---
 
@@ -543,8 +581,9 @@ netra/
 │   │   ├── policy.py             # Cedar safety policies (forbid_protected, dependents)
 │   │   ├── executor.py           # 5-stage Step Functions remediation executor
 │   │   ├── audit.py              # Append-only DynamoDB audit ledger
+│   │   ├── auth.py               # Enterprise eAuth (HMAC session tokens, RBAC roles, API key hashing)
 │   │   ├── verify.py             # 6-check cryptographic proof harness (<2s)
-│   │   ├── api.py                # Single-Lambda HTTP API router (12 endpoints + HMAC minting)
+│   │   ├── api.py                # Single-Lambda HTTP API router (20 production endpoints + RBAC gating)
 │   │   ├── notifications.py      # Mobile Slack Block Kit and generic webhook dispatcher
 │   │   ├── forecast.py           # Spend acceleration and 30-day confidence intervals
 │   │   ├── budget.py             # FinOps tag governance score and budget ceiling evaluation
@@ -560,10 +599,10 @@ netra/
 │   │       ├── validator.py      # Zero-tolerance numeric grounding validator
 │   │       ├── fallback.py       # Deterministic templated narrative engine
 │   │       └── investigator.py   # EventBridge finding investigation Lambda
-│   └── tests/                    # 114 automated unit, integration, and policy tests
+│   └── tests/                    # 141 automated unit, integration, and policy tests (incl. test_auth.py)
 ├── frontend/
 │   ├── app/                      # Next.js 15 App Router (Overview, Investigation, Audit)
-│   ├── components/               # Monospace instrument UI components
+│   ├── components/               # Monospace instrument UI components (AuthModal, TopBar, AuditLedger)
 │   └── lib/                      # Zero-dependency demo data and API client store
 └── scripts/
     ├── break.py                  # Fault injection proving sub-10s fast-path detection
@@ -576,17 +615,18 @@ netra/
 
 ## Testing
 
-NETRA maintains **131 automated unit, integration, and policy tests covering 100% of core contracts**:
+NETRA maintains **141 automated unit, integration, and policy tests covering 100% of core contracts**:
 
 ```bash
 python -m pytest backend/tests/ -v
 ```
 
 ```text
-============================ 131 passed in 21.28s =============================
+============================ 141 passed in 18.83s =============================
 ```
 
 ### Test Coverage Areas
+- `test_auth.py`: Enterprise eAuth, HMAC-SHA256 session token generation, token expiration/tampering detection, RBAC permission matrices (`viewer`, `operator`, `admin`), SHA-256 API key hashing, persona login, and non-blocking demo fallback.
 - `test_pricing.py` & `test_s3_pricing.py`: Unit rate caching (`usd_gb_month`), Price List API parsing, cache-hit inflation regression checks, and SHA-256 provenance digests.
 - `test_cedar_policy.py`: Formal verification of `forbid_protected`, `forbid_dependents`, `forbid_unsnapshotted`, and `forbid` unconditionally overriding `permit`.
 - `test_mcp_policy.py`: HMAC token validation, replay defense, TTL expiry, parameter tampering rejection, and zero-mutating agent IAM boundaries.

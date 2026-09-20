@@ -16,25 +16,26 @@ export default function AuditPage() {
   const [revertCount, setRevertCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const [auditRes, causeRes] = await Promise.all([
-          getAudit(50),
-          getAuditByCause(),
-        ]);
-        setEntries(auditRes.entries || []);
-        setRecoveredTotal(auditRes.recovered_month_inr || 0);
-        setActionCount(auditRes.action_count || 0);
-        setRevertCount(auditRes.revert_count || 0);
-        setCauses(causeRes.causes || []);
-      } catch (err) {
-        console.error("Failed to load audit data:", err);
-      } finally {
-        setIsLoading(false);
-      }
+  const refreshAudit = async () => {
+    try {
+      const [auditRes, causeRes] = await Promise.all([
+        getAudit(50),
+        getAuditByCause(),
+      ]);
+      setEntries(auditRes.entries || []);
+      setRecoveredTotal(auditRes.recovered_month_inr || 0);
+      setActionCount(auditRes.action_count || 0);
+      setRevertCount(auditRes.revert_count || 0);
+      setCauses(causeRes.causes || []);
+    } catch (err) {
+      console.error("Failed to load audit data:", err);
+    } finally {
+      setIsLoading(false);
     }
-    load();
+  };
+
+  useEffect(() => {
+    refreshAudit();
   }, []);
 
   if (isLoading) {
@@ -130,7 +131,7 @@ export default function AuditPage() {
       <CauseBars causes={causes} />
 
       {/* Immutable Append-Only Remediation Ledger */}
-      <AuditLedger entries={entries} />
+      <AuditLedger entries={entries} onRollbackSuccess={refreshAudit} />
     </div>
   );
 }

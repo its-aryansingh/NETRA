@@ -1,11 +1,49 @@
+"use client";
+
+import { useState } from "react";
 import { formatDate, formatINR } from "@/lib/format";
 import { AuditEntry } from "@/lib/demo-data";
+import { postRollback, getCurrentUser } from "@/lib/api";
 
 interface AuditLedgerProps {
   entries: AuditEntry[];
+  onRollbackSuccess?: () => void;
 }
 
-export default function AuditLedger({ entries }: AuditLedgerProps) {
+export default function AuditLedger({ entries, onRollbackSuccess }: AuditLedgerProps) {
+  const [inFlightId, setInFlightId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  const handleRollback = async (entry: AuditEntry) => {
+    if (!entry.rollback_snapshot_id) return;
+    const user = getCurrentUser();
+    if (user && user.role !== "admin") {
+      setFeedback({
+        type: "error",
+        message: `403 Forbidden: Only Admin role can trigger EBS rollback restoration (Current role: ${user.role}). Switch persona in TopBar to Admin to execute rollbacks.`,
+      });
+      return;
+    }
+
+    try {
+      setInFlightId(entry.audit_id);
+      setFeedback(null);
+      const res = await postRollback(entry.audit_id, entry.rollback_snapshot_id);
+      setFeedback({
+        type: "success",
+        message: `Restoration triggered for ${entry.target_id}! Restored volume: ${res.restored_volume_id || "vol-safeguard-ok"} (${res.status})`,
+      });
+      if (onRollbackSuccess) onRollbackSuccess();
+    } catch (err: any) {
+      setFeedback({
+        type: "error",
+        message: err?.message || "Rollback execution failed",
+      });
+    } finally {
+      setInFlightId(null);
+    }
+  };
+
   return (
     <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[14px] p-6 mb-6">
       <div className="flex items-center justify-between mb-4">
@@ -27,6 +65,19 @@ export default function AuditLedger({ entries }: AuditLedgerProps) {
           <span>append-only · DynamoDB stream</span>
         </div>
       </div>
+
+      {feedback && (
+        <div
+          className={`mb-4 px-3 py-2 rounded-[8px] text-xs font-mono flex items-center justify-between border ${
+            feedback.type === "success"
+              ? "bg-[var(--mint-bg)] text-[var(--mint)] border-[var(--mint-line)]"
+              : "bg-[var(--alarm)]/10 text-[var(--alarm)] border-[var(--alarm)]/30"
+          }`}
+        >
+          <span>{feedback.message}</span>
+          <button onClick={() => setFeedback(null)} className="ml-2 hover:opacity-75 font-bold">×</button>
+        </div>
+      )}
 
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs font-mono">
@@ -50,6 +101,7 @@ export default function AuditLedger({ entries }: AuditLedgerProps) {
             ) : (
               entries.map(entry => {
                 const isRevert = entry.revert || entry.recovered_month_inr < 0;
+                const canRollback = Boolean(entry.rollback_snapshot_id && entry.rollback_snapshot_id !== "none" && !isRevert);
                 return (
                   <tr key={entry.audit_id} className="hover:bg-[var(--surface-2)]/50 transition-colors">
                     <td className="py-3 text-[var(--text-3)]">{formatDate(entry.timestamp)}</td>
@@ -73,14 +125,26 @@ export default function AuditLedger({ entries }: AuditLedgerProps) {
                       <span className="text-[10px] text-[var(--text-3)] font-normal ml-0.5">/mo</span>
                     </td>
                     <td className="py-3 pl-4 text-[var(--text-3)]">
-                      {entry.rollback_snapshot_id ? (
-                        <span className="inline-flex items-center gap-1 text-[var(--text-2)]">
-                          <svg className="w-3 h-3 text-[var(--mint)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                            <path d="M3 3v5h5" />
-                          </svg>
-                          <span>{entry.rollback_snapshot_id}</span>
-                        </span>
+                      {entry.rollback_snapshot_id && entry.rollback_snapshot_id !== "none" ? (
+                        <div className="inline-flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 text-[var(--text-2)]">
+                            <svg className="w-3 h-3 text-[var(--mint)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                              <path d="M3 3v5h5" />
+                            </svg>
+                            <span>{entry.rollback_snapshot_id}</span>
+                          </span>
+                          {canRollback && (
+                            <button
+                              onClick={() => handleRollback(entry)}
+                              disabled={inFlightId === entry.audit_id}
+                              className="px-2 py-0.5 rounded-[5px] text-[10px] uppercase font-semibold bg-[var(--surface-2)] hover:bg-[var(--ground)] border border-[var(--line-soft)] hover:border-[var(--line-high)] text-[var(--mint)] transition-all disabled:opacity-50"
+                              title="Trigger 1-click snapshot restore (Requires Admin role)"
+                            >
+                              {inFlightId === entry.audit_id ? "Restoring..." : "Restore"}
+                            </button>
+                          )}
+                        </div>
                       ) : (
                         <span>—</span>
                       )}

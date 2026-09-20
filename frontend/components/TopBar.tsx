@@ -3,16 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import useSWR from "swr";
-import { getSummary, isDemoMode, setDemoMode, getConnectedAwsAccount } from "@/lib/api";
+import { getSummary, isDemoMode, setDemoMode, getConnectedAwsAccount, getCurrentUser, UserProfile } from "@/lib/api";
 import { useEffect, useState } from "react";
 import WellArchitectedModal from "@/components/WellArchitectedModal";
 import AwsConnectModal from "@/components/AwsConnectModal";
+import AuthModal from "@/components/AuthModal";
 
 export default function TopBar() {
   const pathname = usePathname();
   const [demo, setDemo] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAwsModalOpen, setIsAwsModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [connectedAccount, setConnectedAccount] = useState<{ accountId: string; region: string } | null>(null);
 
   const { data: summary } = useSWR("/summary", getSummary, {
@@ -24,6 +27,7 @@ export default function TopBar() {
   useEffect(() => {
     setDemo(isDemoMode());
     setConnectedAccount(getConnectedAwsAccount());
+    setCurrentUser(getCurrentUser());
   }, []);
 
   const toggleDemo = () => {
@@ -100,6 +104,11 @@ export default function TopBar() {
 
         <WellArchitectedModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
         <AwsConnectModal isOpen={isAwsModalOpen} onClose={() => setIsAwsModalOpen(false)} />
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          onAuthChange={(u) => setCurrentUser(u)}
+        />
 
         {/* Right side status items */}
         <div className="flex items-center gap-3">
@@ -122,6 +131,27 @@ export default function TopBar() {
               </span>
             </div>
           )}
+
+          {/* eAuth / RBAC Persona Badge Button */}
+          <button
+            onClick={() => setIsAuthModalOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-[7px] text-[11px] font-mono transition-colors border bg-[var(--surface-2)] text-[var(--text-2)] hover:text-[var(--text)] hover:border-[var(--line-high)]"
+            title="eAuth & RBAC Identity: Switch between Admin, Operator, and Viewer roles"
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                currentUser?.role === "admin"
+                  ? "bg-[var(--ember)]"
+                  : currentUser?.role === "operator"
+                  ? "bg-[var(--cyan)]"
+                  : "bg-[var(--text-3)]"
+              }`}
+            />
+            <span className="capitalize font-semibold text-[var(--text)]">{currentUser?.role || "Admin"}</span>
+            <span className="text-[var(--text-3)] text-[10px] hidden md:inline">
+              ({currentUser?.auth_type === "api_key" ? "API Key" : "eAuth"})
+            </span>
+          </button>
 
           {/* Target Region Chip */}
           <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-[7px] bg-[var(--ground)] border border-[var(--line-soft)] text-xs text-[var(--text-3)] font-mono">
