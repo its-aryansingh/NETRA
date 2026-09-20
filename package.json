@@ -1,0 +1,10 @@
+{
+  "name": "netra",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NETRA — Near-real-time Expenditure Tracking & Remediation Agent",
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build",
+    "start": "cd frontend && npm start"
+  }
+}
