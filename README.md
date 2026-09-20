@@ -176,7 +176,7 @@ All figures below are real measured numbers from the deployed stack in `ap-south
 | Inventory sweep interval | 60 s | EventBridge Scheduler `rate(1 minute)` |
 | Policy check and validator latency | 20 ms | Local Cedar evaluation + regex numeric validation |
 | Verification suite duration (`make verify`) | 1.23 s | Cryptographic proof harness (`netra.verify`) |
-| Backend test suite | 114 / 114 passed | Pytest suite execution time: 20.57s |
+| Backend test suite | 131 / 131 passed | Pytest suite execution time: 21.28s |
 | Projected monthly spend recovered in demo run | ₹71,921.80 | Measured across 5 remediation actions in demo session |
 | Demo stack running cost | ₹70.00/hr ($0.79/hr) | CloudFormation demo stack measured burn |
 | Native AWS Cost Explorer detection delay | 24 to 33 hours | Documented in `aws-solutions/innovation-sandbox-on-aws#92` |
@@ -589,6 +589,17 @@ A full chronological engineering log is maintained in [LEARNING.md](LEARNING.md)
 1. **G-family EC2 Quotas in Student Accounts**: Default AWS quotas for GPU instances in student and personal accounts are 0 vCPUs and take days to raise through AWS Support. We pivoted our on-camera demonstration to `c5.4xlarge` (16 vCPU, 32 GiB RAM, ~₹66.55/hr), which burns fast enough to noticeably shift the dashboard needle within 60 seconds while remaining within default service limits.
 2. **CloudWatch API Batching**: Making individual `get_metric_statistics` queries per resource in a loop inflated Lambda execution times past 8 seconds and triggered API rate limits. Consolidating lookups into a single `get_metric_data` batch query reduced latency to under 400ms.
 3. **The 24-Hour Cost Explorer Blind Spot**: Discovering public issue `aws-solutions/innovation-sandbox-on-aws#92` confirmed that AWS Cost Anomaly Detection is architecturally delayed by up to 24 to 33 hours due to Cost Explorer data latency. This validated our event-driven dual-path architecture: watching EventBridge state-change notifications delivers sub-10-second detection.
+
+---
+
+## Engineering Feedback for AWS Services
+
+Direct, actionable feedback based on deploying and stress-testing NETRA on AWS:
+
+1. **Amazon Bedrock Inference Profile ARNs**: APAC and cross-region inference profiles in `ap-south-1` require IAM permissions on `arn:aws:bedrock:${Region}:${Account}:inference-profile/*` in addition to foundation model ARNs. When omitted, AWS returns an opaque `AccessDeniedException` with no indication of the missing ARN shape. Standardizing IAM error clarity would save developer hours.
+2. **Cost Explorer / Cost Anomaly Detection Latency**: The documented 24-33h data lag forces teams to build reactive out-of-band monitoring. We recommend AWS introduce sub-hourly estimated billing EventBridge triggers.
+3. **CloudWatch Telemetry Batching**: `GetMetricData` with metric math is drastically superior (<400ms vs 8s+) to `GetMetricStatistics` for multi-resource fleet sweeps; AWS documentation should emphasize this pattern more prominently.
+4. **AWS SAM & Cedar Policy Integration**: Native SAM template syntax for Amazon Verified Permissions / Cedar policy stores would significantly elevate authorization-as-code in serverless apps.
 
 ---
 
