@@ -106,8 +106,18 @@ export default function LagPanel({
       </div>
 
       {/* Caption Beneath */}
-      <div className="mt-3 text-[12.5px] text-[var(--text-2)] font-sans">
-        Same account. Same moment.
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[12.5px] text-[var(--text-2)] font-sans">
+        <span>Same account. Same moment.</span>
+        <a
+          href="https://github.com/aws-solutions/innovation-sandbox-on-aws/issues/92"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-mono text-[11px] text-[var(--text-3)] hover:text-[var(--text)] underline decoration-dotted transition-colors flex items-center gap-1"
+          title="AWS Solutions Engineering Issue #92: Lease budget monitoring has 24-hour+ detection blind spot"
+        >
+          <span>Documented in aws-solutions/innovation-sandbox-on-aws#92</span>
+          <span>↗</span>
+        </a>
       </div>
     </div>
   );
