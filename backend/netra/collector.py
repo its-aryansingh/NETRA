@@ -32,6 +32,7 @@ from netra.config import (
 from netra.detector import evaluate
 from netra.inventory import (
     by_service,
+    by_region,
     collect,
     total_inr_hour,
     total_usd_hour,
@@ -231,6 +232,7 @@ def _save_snapshot(
     tot_inr = total_inr_hour(resources)
     tot_usd = total_usd_hour(resources)
     svc_breakdown = by_service(resources)
+    reg_breakdown = by_region(resources)
     ttl_epoch = now_epoch + (7 * 86400)
 
     try:
@@ -240,6 +242,7 @@ def _save_snapshot(
             "total_inr_hour": {"N": str(tot_inr)},
             "total_usd_hour": {"N": str(tot_usd)},
             "by_service": {"M": {k: {"N": str(v)} for k, v in svc_breakdown.items()}},
+            "by_region": {"M": {k: {"N": str(v)} for k, v in reg_breakdown.items()}},
             "resource_count": {"N": str(len(resources))},
             "ttl": {"N": str(ttl_epoch)},
             "created_at": {"N": str(now_epoch)},
@@ -316,6 +319,7 @@ def run_collector(
     region: str = REGION,
     account_id: str = "default",
     event_bus: str = "default",
+    regions: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Execute complete collection, snapshotting, metric gathering, and detection cycle."""
     sess = session or boto3.Session(region_name=region)
@@ -339,7 +343,8 @@ def run_collector(
 
     logger.info("Starting NETRA inventory collection...")
     # 1. Collect inventory & prices
-    resources = collect(session=sess, region=region, dynamodb_client=dynamo)
+    scan_regions = regions if regions is not None else [region]
+    resources = collect(session=sess, region=region, dynamodb_client=dynamo, regions=scan_regions)
     tot_inr = total_inr_hour(resources)
     tot_usd = total_usd_hour(resources)
 
@@ -523,9 +528,58 @@ def run_fast_path(
     return res_summary
 
 
+def run_fleet_collector(
+    account_ids: Optional[List[str]] = None,
+    session: Optional[boto3.Session] = None,
+    regions: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Execute multi-account fleet discovery using AssumeRole across all member accounts."""
+    from netra.cross_account import assume_fleet_role, get_organization_accounts
+    sess = session or boto3.Session()
+
+    if account_ids:
+        target_accounts = [{"Id": a, "Name": f"Account-{a}"} for a in account_ids]
+    else:
+        target_accounts = get_organization_accounts(session=sess)
+
+    account_summaries = []
+    total_fleet_inr = 0.0
+
+    for acc in target_accounts:
+        acc_id = acc.get("Id", "default")
+        acc_sess = assume_fleet_role(acc_id, session=sess)
+        try:
+            summary = run_collector(
+                session=acc_sess,
+                account_id=acc_id,
+                regions=regions,
+            )
+            summary["account_id"] = acc_id
+            summary["account_name"] = acc.get("Name", acc_id)
+            total_fleet_inr += summary.get("total_inr_hour", 0.0)
+            account_summaries.append(summary)
+        except Exception as exc:
+            logger.warning(f"Failed fleet collection for account {acc_id}: {exc}")
+            account_summaries.append({
+                "account_id": acc_id,
+                "account_name": acc.get("Name", acc_id),
+                "error": str(exc),
+                "total_inr_hour": 0.0,
+            })
+
+    return {
+        "status": "ok",
+        "accounts_scanned": len(target_accounts),
+        "fleet_total_inr_hour": round(total_fleet_inr, 2),
+        "accounts": account_summaries,
+    }
+
+
 def lambda_handler(event: Optional[Dict[str, Any]] = None, context: Any = None) -> Dict[str, Any]:
     """AWS Lambda entry point for scheduled or event-driven collector execution."""
     ev = event or {}
+    if ev.get("fleet"):
+        return run_fleet_collector(account_ids=ev.get("account_ids"), regions=ev.get("regions"))
     if ev.get("fast_path") or ev.get("source") == "aws.ec2":
         return run_fast_path(ev)
     return run_collector()

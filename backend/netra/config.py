@@ -17,6 +17,11 @@ from typing import Any, Dict
 # The pricing client MUST be us-east-1 per AWS API specifications.
 REGION: str = os.getenv("AWS_REGION", os.getenv("NETRA_REGION", "ap-south-1"))
 PRICING_REGION: str = os.getenv("NETRA_PRICING_REGION", "us-east-1")
+SUPPORTED_REGIONS: list[str] = [
+    r.strip()
+    for r in os.getenv("NETRA_REGIONS", "ap-south-1,us-east-1,eu-west-1").split(",")
+    if r.strip()
+]
 
 # Fixed conversion rate constant. Never fetched from an external FX API.
 USD_INR: float = float(os.getenv("NETRA_USD_INR", "88.50"))

@@ -374,6 +374,113 @@ def execute_remediation(
         }
 
 
+def rollback_restore(
+    finding_id: str,
+    snapshot_id: str,
+    session: Optional[boto3.Session] = None,
+    account_id: str = DEFAULT_ACCOUNT_ID,
+    operator: str = "console_operator",
+    region: str = REGION,
+) -> Dict[str, Any]:
+    """Execute automated rollback to restore resources safely from snapshot."""
+    sess = session or boto3.Session(region_name=region)
+    ec2 = sess.client("ec2", region_name=region)
+
+    try:
+        finding = load_finding(sess, finding_id, account_id)
+    except Exception:
+        finding = {"finding_id": finding_id, "resource": {"resource_id": "unknown"}}
+
+    res_data = finding.get("resource", {})
+    kind = res_data.get("kind", "ebs")
+
+    try:
+        # 1. Validate snapshot existence
+        snap_resp = ec2.describe_snapshots(SnapshotIds=[snapshot_id])
+        snaps = snap_resp.get("Snapshots", [])
+        if not snaps:
+            raise RemediationError(f"Snapshot {snapshot_id} not found")
+
+        # 2. Restore resource
+        new_resource_id = None
+        if kind == "ebs" or "vol" in res_data.get("resource_id", ""):
+            az = res_data.get("meta", {}).get("availability_zone", f"{region}a")
+            vol = ec2.create_volume(
+                SnapshotId=snapshot_id,
+                AvailabilityZone=az,
+                VolumeType="gp3",
+                TagSpecifications=[
+                    {
+                        "ResourceType": "volume",
+                        "Tags": [
+                            {"Key": "netra:restored", "Value": "true"},
+                            {"Key": "netra:finding_id", "Value": finding_id},
+                            {"Key": "Name", "Value": f"restored-{finding_id}"},
+                        ],
+                    }
+                ],
+            )
+            new_resource_id = vol.get("VolumeId")
+        else:
+            orig_id = res_data.get("resource_id")
+            if orig_id and orig_id.startswith("i-"):
+                try:
+                    ec2.start_instances(InstanceIds=[orig_id])
+                    new_resource_id = orig_id
+                except Exception:
+                    new_resource_id = f"restored-from-{snapshot_id}"
+            else:
+                new_resource_id = f"restored-from-{snapshot_id}"
+
+        # 3. Record audit entry
+        audit_entry = record_audit_entry(
+            session=sess,
+            account_id=account_id,
+            finding_id=finding_id,
+            action="rollback",
+            target_id=new_resource_id or snapshot_id,
+            approved_by=operator,
+            recovered_month_inr=0.0,
+            rollback_snapshot_id=snapshot_id,
+            ok=True,
+        )
+
+        # 4. Update status in DynamoDB
+        try:
+            update_finding_status(sess, finding_id, "ROLLED_BACK", account_id)
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "status": "ROLLED_BACK",
+            "finding_id": finding_id,
+            "restored_resource_id": new_resource_id,
+            "snapshot_id": snapshot_id,
+            "audit": audit_entry,
+        }
+    except Exception as exc:
+        logger.error(f"Rollback failed for {finding_id}: {exc}")
+        record_audit_entry(
+            session=sess,
+            account_id=account_id,
+            finding_id=finding_id,
+            action="rollback",
+            target_id=snapshot_id,
+            approved_by=operator,
+            recovered_month_inr=0.0,
+            rollback_snapshot_id=snapshot_id,
+            ok=False,
+            error=str(exc),
+        )
+        return {
+            "success": False,
+            "status": "FAILED",
+            "finding_id": finding_id,
+            "error": str(exc),
+        }
+
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda entry point for Step Functions tasks or direct execution."""
     session = boto3.Session()
@@ -385,6 +492,16 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
     if not finding_id:
         return {"error": "Missing finding_id in event"}
+
+    if step == "rollback" or action == "rollback":
+        snapshot_id = event.get("snapshot_id", "")
+        return rollback_restore(
+            finding_id=finding_id,
+            snapshot_id=snapshot_id,
+            session=session,
+            account_id=account_id,
+            operator=approved_by,
+        )
 
     if step:
         finding = load_finding(session, finding_id, account_id)

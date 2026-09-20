@@ -1,4 +1,4 @@
-.PHONY: setup deploy collect test verify break demo-up demo-down demo-seed demo-reset help
+.PHONY: setup deploy collect test verify break chaos demo-up demo-down demo-seed demo-reset help
 
 PYTHON ?= python
 
@@ -11,6 +11,7 @@ help:
 	@echo "  make test       Run complete unit test suite across all modules"
 	@echo "  make verify     Execute the judge-facing verification suite (<2s proof)"
 	@echo "  make break      Trigger runaway compute and prove sub-10s fast-path detection"
+	@echo "  make chaos      Run automated chaos and load testing suite (5 stages)"
 	@echo "  make demo-up    Deploy standalone demo stack (c5.4xlarge, orphaned EBS, protected)"
 	@echo "  make demo-down  Tear down standalone demo stack to eliminate spend"
 	@echo "  make demo-seed  Launch the c5.4xlarge runaway demonstration resource"
@@ -47,6 +48,10 @@ verify:
 break:
 	@echo "==> Injecting fault to demonstrate sub-10-second fast-path detection..."
 	PYTHONPATH=backend $(PYTHON) scripts/break.py
+
+chaos:
+	@echo "==> Running NETRA automated chaos & load testing suite..."
+	PYTHONPATH=backend $(PYTHON) scripts/chaos.py
 
 demo-up:
 	@echo "==> Deploying reproducible judge demo stack (≈₹70/hr)..."

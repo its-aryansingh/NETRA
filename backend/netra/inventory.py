@@ -7,6 +7,7 @@ PricedResource instances carrying cryptographic provenance.
 
 from __future__ import annotations
 
+import concurrent.futures
 import datetime
 import time
 from typing import Any, Dict, List, Optional
@@ -48,7 +49,7 @@ def _epoch_seconds(dt: Any) -> int:
     return int(time.time())
 
 
-def collect(
+def collect_single_region(
     session: Optional[boto3.Session] = None,
     region: str = REGION,
     dynamodb_client: Any = None,
@@ -229,6 +230,38 @@ def collect(
     return priced_resources
 
 
+def collect(
+    session: Optional[boto3.Session] = None,
+    region: str = REGION,
+    dynamodb_client: Any = None,
+    pricing_client: Any = None,
+    regions: Optional[List[str]] = None,
+) -> List[PricedResource]:
+    """Discover active compute, unattached storage, and NAT gateways across target region(s).
+    
+    If `regions` contains multiple regions, runs collection across all specified
+    regions concurrently and aggregates the resulting priced inventory.
+    """
+    if regions and len(regions) > 1:
+        results: List[PricedResource] = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(regions), 8)) as executor:
+            futures = {
+                executor.submit(collect_single_region, session, reg, dynamodb_client, pricing_client): reg
+                for reg in regions
+            }
+            for fut in concurrent.futures.as_completed(futures):
+                reg_name = futures[fut]
+                try:
+                    res_list = fut.result()
+                    results.extend(res_list)
+                except Exception as exc:
+                    logger.warning(f"Error collecting inventory from region {reg_name}: {exc}")
+        return sorted(results, key=lambda x: x.resource_id)
+
+    target_region = regions[0] if (regions and len(regions) == 1) else region
+    return collect_single_region(session, target_region, dynamodb_client, pricing_client)
+
+
 def total_inr_hour(resources: List[PricedResource]) -> float:
     """Calculate cumulative spend rate in INR per hour across all inventoried resources."""
     return round(sum(r.inr_hour for r in resources), 2)
@@ -248,4 +281,12 @@ def by_service(resources: List[PricedResource]) -> Dict[str, float]:
     }
     for r in resources:
         breakdown[r.kind] = round(breakdown.get(r.kind, 0.0) + r.inr_hour, 2)
+    return breakdown
+
+
+def by_region(resources: List[PricedResource]) -> Dict[str, float]:
+    """Aggregate total INR per hour partitioned by AWS region."""
+    breakdown: Dict[str, float] = {}
+    for r in resources:
+        breakdown[r.region] = round(breakdown.get(r.region, 0.0) + r.inr_hour, 2)
     return breakdown

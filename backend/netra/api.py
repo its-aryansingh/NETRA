@@ -215,10 +215,19 @@ def handle_burn(event: Dict[str, Any], context: Any, session: Optional[boto3.Ses
     except Exception as err:
         logger.warning(f"Failed to query burn history: {err}")
 
+    # Embed predictive forecast
+    latest_burn = points[-1]["inr_hour"] if points else baseline_inr
+    try:
+        from netra.forecast import project_monthly_spend
+        forecast_data = project_monthly_spend(snapshots=points, current_burn_inr=latest_burn)
+    except Exception:
+        forecast_data = {}
+
     return _json_response(200, {
         "points": points,
         "baseline_inr_hour": baseline_inr,
         "step_at_ts": step_at_ts,
+        "forecast": forecast_data,
     })
 
 
@@ -677,6 +686,163 @@ def handle_demo_simulate(event: Dict[str, Any], context: Any, session: Optional[
     })
 
 
+def handle_forecast(event: Dict[str, Any], context: Any = None, session: Optional[boto3.Session] = None) -> Dict[str, Any]:
+    """GET /api/forecast"""
+    from netra.forecast import calculate_burn_acceleration, project_monthly_spend
+    sess = session or boto3.Session(region_name=REGION)
+    now = int(time.time())
+    start_epoch = now - (24 * 3600)
+    points = []
+    latest_burn = 66.55
+
+    try:
+        dynamo = sess.client("dynamodb", region_name=REGION)
+        resp = dynamo.query(
+            TableName=TABLE_BURN_SNAPSHOTS,
+            KeyConditionExpression="pk = :pk AND sk >= :start_sk",
+            ExpressionAttributeValues={
+                ":pk": {"S": "ACCOUNT#default"},
+                ":start_sk": {"S": f"TS#{start_epoch}"},
+            },
+            Limit=720,
+        )
+        for it in resp.get("Items", []):
+            ts = int(it["sk"]["S"].replace("TS#", ""))
+            inr = float(it.get("total_inr_hour", {}).get("N", 0.0))
+            points.append({"created_at": ts, "total_inr_hour": inr})
+        if points:
+            latest_burn = points[-1]["total_inr_hour"]
+    except Exception as err:
+        logger.warning(f"Failed querying snapshots for forecast: {err}")
+
+    accel = calculate_burn_acceleration(points)
+    proj = project_monthly_spend(points, current_burn_inr=latest_burn)
+
+    return _json_response(200, {
+        "ok": True,
+        "forecast": proj,
+        "acceleration": accel,
+    })
+
+
+def handle_governance(event: Dict[str, Any], context: Any = None, session: Optional[boto3.Session] = None) -> Dict[str, Any]:
+    """GET /api/governance"""
+    from netra.budget import evaluate_budget_compliance, calculate_tag_governance_score
+    from netra.inventory import collect
+    sess = session or boto3.Session(region_name=REGION)
+    current_burn = 0.0
+    resources = []
+
+    try:
+        dynamo = sess.client("dynamodb", region_name=REGION)
+        resources = collect(session=sess, region=REGION, dynamodb_client=dynamo)
+        current_burn = sum(r.inr_hour for r in resources)
+    except Exception as err:
+        logger.warning(f"Failed collecting inventory for governance: {err}")
+
+    tag_report = calculate_tag_governance_score(resources)
+    budget_report = evaluate_budget_compliance(current_burn)
+
+    return _json_response(200, {
+        "ok": True,
+        "budget": budget_report,
+        "tag_governance": tag_report,
+    })
+
+
+def handle_accounts(event: Dict[str, Any], context: Any = None, session: Optional[boto3.Session] = None) -> Dict[str, Any]:
+    """GET /api/accounts"""
+    from netra.cross_account import get_organization_accounts
+    sess = session or boto3.Session(region_name=REGION)
+    accounts = get_organization_accounts(session=sess)
+    return _json_response(200, {
+        "ok": True,
+        "count": len(accounts),
+        "accounts": accounts,
+    })
+
+
+def handle_test_webhook(event: Dict[str, Any], context: Any = None, session: Optional[boto3.Session] = None) -> Dict[str, Any]:
+    """POST /api/alerts/test-webhook"""
+    from netra.notifications import dispatch_webhook, dispatch_slack_alert
+    body = {}
+    if "body" in event and event["body"]:
+        try:
+            body = json.loads(event["body"]) if isinstance(event["body"], str) else event["body"]
+        except Exception:
+            body = {}
+
+    webhook_url = body.get("webhook_url", "")
+    alert_type = body.get("type", "generic")
+
+    if not webhook_url:
+        return _error_response(400, "Missing webhook_url in request body", "INVALID_REQUEST")
+
+    dispatched = False
+    if alert_type == "slack":
+        from netra.models import Finding, PricedResource
+        dummy_res = PricedResource(
+            resource_id="i-test-webhook",
+            kind="ec2",
+            sub_type="c5.4xlarge",
+            region="ap-south-1",
+            launched_at=int(time.time()) - 3600,
+            age_seconds=3600,
+            usd_hour=0.752,
+            inr_hour=66.55,
+            price_ref="test:webhook",
+            tags={"Owner": "devops"},
+            state="running",
+        )
+        dummy_finding = Finding(
+            finding_id="01TESTWEBHOOK0000000001",
+            severity="critical",
+            status="AWAITING_APPROVAL",
+            rules_fired=[{"rule": "burn_step_change", "detail": "Test Webhook Alert"}],
+            resource=dummy_res,
+            computed={"inr_hour": 66.55, "runway_hours": 14.9},
+            detected_at=int(time.time()),
+        )
+        dispatched = dispatch_slack_alert(webhook_url, dummy_finding)
+    else:
+        dispatched = dispatch_webhook(webhook_url, {
+            "event": "netra.test.alert",
+            "message": "NETRA Alert Webhook Test Successful",
+            "timestamp": int(time.time()),
+        })
+
+    return _json_response(200, {
+        "ok": True,
+        "status": "dispatched" if dispatched else "failed_or_unreachable",
+        "webhook_url": webhook_url,
+    })
+
+
+def handle_rollback(event: Dict[str, Any], context: Any = None, finding_id: str = "", session: Optional[boto3.Session] = None) -> Dict[str, Any]:
+    """POST /api/audit/{id}/rollback"""
+    from netra.executor import rollback_restore
+    sess = session or boto3.Session(region_name=REGION)
+    body = {}
+    if "body" in event and event["body"]:
+        try:
+            body = json.loads(event["body"]) if isinstance(event["body"], str) else event["body"]
+        except Exception:
+            body = {}
+
+    snapshot_id = body.get("snapshot_id", "snap-retained-safeguard")
+    operator = body.get("approved_by", "console_operator")
+
+    res = rollback_restore(
+        finding_id=finding_id,
+        snapshot_id=snapshot_id,
+        session=sess,
+        operator=operator,
+    )
+
+    status_code = 200 if res.get("success") else 400
+    return _json_response(status_code, res)
+
+
 # -----------------------------------------------------------------------------
 # Internal Router & Lambda Handler
 # -----------------------------------------------------------------------------
@@ -717,6 +883,18 @@ def lambda_handler(event: Dict[str, Any], context: Any, session: Optional[boto3.
         if method == "GET" and path == "/api/findings":
             return handle_findings_list(event, context, session=session)
 
+        if method == "GET" and path == "/api/forecast":
+            return handle_forecast(event, context, session=session)
+
+        if method == "GET" and path == "/api/governance":
+            return handle_governance(event, context, session=session)
+
+        if method == "GET" and path == "/api/accounts":
+            return handle_accounts(event, context, session=session)
+
+        if method == "POST" and path == "/api/alerts/test-webhook":
+            return handle_test_webhook(event, context, session=session)
+
         # /api/findings/{id}
         m_detail = re.match(r"^/api/findings/([a-zA-Z0-9_-]+)$", path)
         if method == "GET" and m_detail:
@@ -742,6 +920,11 @@ def lambda_handler(event: Dict[str, Any], context: Any, session: Optional[boto3.
 
         if method == "GET" and path == "/api/audit/by-cause":
             return handle_audit_by_cause(event, context, session=session)
+
+        # /api/audit/{id}/rollback
+        m_roll = re.match(r"^/api/audit/([a-zA-Z0-9_-]+)/rollback$", path)
+        if method == "POST" and m_roll:
+            return handle_rollback(event, context, finding_id=m_roll.group(1), session=session)
 
         if method == "GET" and path == "/api/verify":
             return handle_verify(event, context, session=session)

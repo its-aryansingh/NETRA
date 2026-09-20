@@ -361,10 +361,14 @@ Resources:
                 - ec2:DescribeInstances
                 - ec2:DescribeVolumes
                 - ec2:DescribeNatGateways
+                - ec2:DescribeSnapshots
                 - ec2:StopInstances
+                - ec2:StartInstances
                 - ec2:TerminateInstances
                 - ec2:DeleteVolume
                 - ec2:CreateSnapshot
+                - ec2:CreateVolume
+                - ec2:CreateTags
                 - ec2:DeleteNatGateway
               Resource: "*"
             - Effect: Allow
@@ -449,6 +453,28 @@ Resources:
               approved_by.$: "$.approved_by"
               step: "record_audit"
               ok: false
+            End: true
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ExecutorFunction
+
+  # Prompt O: Automated Rollback State Machine
+  NetraRollbackStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: netra-rollback
+      Definition:
+        Comment: "NETRA One-Click Automated Rollback Pipeline"
+        StartAt: RestoreResource
+        States:
+          RestoreResource:
+            Type: Task
+            Resource: !GetAtt ExecutorFunction.Arn
+            Parameters:
+              finding_id.$: "$.finding_id"
+              snapshot_id.$: "$.snapshot_id"
+              approved_by.$: "$.approved_by"
+              step: "rollback"
             End: true
       Policies:
         - LambdaInvokePolicy:
