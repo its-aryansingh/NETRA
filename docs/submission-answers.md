@@ -22,7 +22,7 @@
 
 ### Links
 - **GitHub Repository**: https://github.com/its-aryansingh/NETRA
-- **Live Demo (Cockpit)**: https://main.d123456789.amplifyapp.com *(Runs with zero sign-up or login required)*
+- **Live Demo (Cockpit)**: https://netra-production.up.railway.app/ *(Runs with zero sign-up or login required)*
 - **Demo Video (3 Minutes)**: `[PASTE_YOUR_YOUTUBE_LINK_HERE]`
 
 ---
