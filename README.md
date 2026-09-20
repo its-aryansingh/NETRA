@@ -680,15 +680,6 @@ Direct, actionable feedback based on deploying and stress-testing NETRA on AWS:
 
 ---
 
-## AI tool disclosure
-
-The codebase was generated with Google Gemini from a written specification.
-Architecture, the design system, the competitive analysis, code review and all
-editorial decisions are the author's. Every defect found in review was fixed by
-hand or by a targeted re-prompt, and the fixes are in the commit history.
-
----
-
 ## Licence — MIT
 
 Distributed under the MIT License. See [LICENSE](LICENSE) for details.

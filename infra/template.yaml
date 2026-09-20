@@ -152,7 +152,7 @@ Resources:
         Enabled: true
 
   # ----------------------------------------------------------------------------
-  # S3 Provenance Storage (Prompt G: Hashed Price Documents)
+  # S3 Provenance Storage (Hashed Price Documents)
   # ----------------------------------------------------------------------------
 
   NetraPriceDocsBucket:
@@ -234,7 +234,7 @@ Resources:
                   - "CreateNatGateway"
 
   # ----------------------------------------------------------------------------
-  # SNS & SQS Plumbing (Prompt K: Decoupled Queue with DLQ & Phone Alerting)
+  # SNS & SQS Plumbing (Decoupled Queue with DLQ & Phone Alerting)
   # ----------------------------------------------------------------------------
 
   NetraCriticalFindingsTopic:
@@ -532,7 +532,7 @@ Resources:
         - LambdaInvokePolicy:
             FunctionName: !Ref ExecutorFunction
 
-  # Prompt O: Automated Rollback State Machine
+  # Automated Rollback State Machine
   NetraRollbackStateMachine:
     Type: AWS::Serverless::StateMachine
     Properties:
@@ -592,7 +592,7 @@ Resources:
                 - !GetAtt NetraPriceCacheTable.Arn
 
   # ----------------------------------------------------------------------------
-  # CloudWatch Dashboard & Alarms (Prompt K: Telemetry & Critical Guardrails)
+  # CloudWatch Dashboard & Alarms (Telemetry & Critical Guardrails)
   # ----------------------------------------------------------------------------
 
   NetraCloudWatchDashboard:

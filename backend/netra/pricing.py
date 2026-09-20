@@ -199,7 +199,7 @@ def _put_cached_price(
     if dynamodb_client is None:
         return
 
-    # Prompt G: Offload raw price document to S3 if s3_client and bucket are configured
+    # Offload raw price document to S3 if s3_client and bucket are configured
     s3_key = price_doc.s3_key
     if not s3_key and price_doc.raw_doc and price_doc.price_ref.startswith("sha256:"):
         sha256_hex = price_doc.price_ref.split(":", 1)[1]

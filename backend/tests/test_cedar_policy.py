@@ -1,4 +1,4 @@
-"""Unit tests for NETRA Cedar Policy Engine (Prompt F).
+"""Unit tests for NETRA Cedar Policy Engine.
 
 Verifies that policy/netra.cedar evaluates correctly, that all 5 safety rules
 are enforced, and that forbid unconditionally beats permit by construction.

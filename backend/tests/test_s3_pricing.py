@@ -1,4 +1,4 @@
-"""Tests for S3 Hashed Price Documents (Prompt G)."""
+"""Tests for S3 Hashed Price Documents."""
 
 import json
 from unittest.mock import MagicMock

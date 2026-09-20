@@ -1,4 +1,4 @@
-"""Unit tests for NETRA plumbing row (Prompt K).
+"""Unit tests for NETRA event plumbing and notification architecture.
 
 Verifies CloudWatch custom metrics, SQS batch processing with DLQ partial failures,
 SNS mobile push alerting (<300 characters), and the $200 credit basis.

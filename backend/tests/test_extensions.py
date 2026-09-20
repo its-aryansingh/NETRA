@@ -1,13 +1,13 @@
-"""Tests for NETRA Enterprise Extensions (Prompts L through R).
+"""Tests for NETRA Enterprise Extensions.
 
 Verifies:
-- Prompt L: Multi-Region fleet inventory collection and regional breakdown.
-- Prompt M: Slack Block Kit payload generation and webhook dispatcher.
-- Prompt N: Predictive spend forecasting, acceleration math, and P10/P50/P90 bands.
-- Prompt O: Automated rollback state machine, snapshot validation, and restoration.
-- Prompt P: FinOps tag compliance scoring and budget threshold evaluation.
-- Prompt Q: AWS Organizations AssumeRole fleet scanning and account discovery.
-- Prompt R: Chaos test scenario execution and invariant verification.
+- Multi-Region fleet inventory collection and regional breakdown.
+- Slack Block Kit payload generation and webhook dispatcher.
+- Predictive spend forecasting, acceleration math, and P10/P50/P90 bands.
+- Automated rollback state machine, snapshot validation, and restoration.
+- FinOps tag compliance scoring and budget threshold evaluation.
+- AWS Organizations AssumeRole fleet scanning and account discovery.
+- Chaos test scenario execution and invariant verification.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from scripts.chaos import run_chaos_suite
 
 
 # ==============================================================================
-# 1. Prompt L: Multi-Region Scanning Tests
+# 1. Multi-Region Scanning Tests
 # ==============================================================================
 
 def test_by_region_aggregation():
@@ -114,7 +114,7 @@ def test_multi_region_collection_concurrency():
 
 
 # ==============================================================================
-# 2. Prompt M: Slack & Webhook Dispatcher Tests
+# 2. Slack & Webhook Dispatcher Tests
 # ==============================================================================
 
 def test_slack_block_kit_payload():
@@ -160,7 +160,7 @@ def test_dispatch_webhook_graceful_on_error():
 
 
 # ==============================================================================
-# 3. Prompt N: Predictive Spend Forecasting Tests
+# 3. Predictive Spend Forecasting Tests
 # ==============================================================================
 
 def test_burn_acceleration_computation():
@@ -194,7 +194,7 @@ def test_project_monthly_spend_confidence_intervals():
 
 
 # ==============================================================================
-# 4. Prompt O: Automated Rollback State Machine Tests
+# 4. Automated Rollback State Machine Tests
 # ==============================================================================
 
 def test_rollback_restore_success():
@@ -245,7 +245,7 @@ def test_mcp_netra_rollback_tool():
 
 
 # ==============================================================================
-# 5. Prompt P: FinOps Tag & Budget Governance Tests
+# 5. FinOps Tag & Budget Governance Tests
 # ==============================================================================
 
 def test_calculate_tag_governance_score():
@@ -302,7 +302,7 @@ def test_evaluate_budget_compliance_thresholds():
 
 
 # ==============================================================================
-# 6. Prompt Q: AWS Organizations Cross-Account Scanning Tests
+# 6. AWS Organizations Cross-Account Scanning Tests
 # ==============================================================================
 
 def test_assume_fleet_role_offline_fallback():
@@ -342,7 +342,7 @@ def test_run_fleet_collector():
 
 
 # ==============================================================================
-# 7. Prompt R: Automated Chaos & Synthetic Load Suite Tests
+# 7. Automated Chaos & Synthetic Load Suite Tests
 # ==============================================================================
 
 def test_chaos_simulation_suite_passes():

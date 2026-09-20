@@ -1,4 +1,4 @@
-"""Unit tests for NETRA reproducibility stack (Prompt D).
+"""Unit tests for NETRA reproducibility stack.
 
 Verifies:
 1. demo-stack/template.yaml schema, resources, and exact tags.
