@@ -219,6 +219,7 @@ def _put_cached_price(
         raw_doc=None if s3_key else price_doc.raw_doc,
         s3_key=s3_key,
         ttl=price_doc.ttl,
+        usd_gb_month=price_doc.usd_gb_month,
     )
 
     try:
@@ -304,15 +305,17 @@ def _fetch_from_pricing_api(
     terms = parsed_doc.get("terms", {})
     usd_unit_price = _extract_ondemand_usd(terms)
 
+    usd_gb_month: Optional[float] = None
     if kind == "ebs":
         # Price is per GB-month. Convert to hourly: usd_gb_month * size_gb / 730
+        usd_gb_month = usd_unit_price
         volume_size = size_gb if size_gb is not None and size_gb > 0 else 1
         usd_hour = (usd_unit_price * volume_size) / 730.0
     else:
         usd_hour = usd_unit_price
 
     sha256_hex = hashlib.sha256(canonical_raw_doc.encode("utf-8")).hexdigest()
-    return usd_hour, canonical_raw_doc, sha256_hex
+    return usd_hour, canonical_raw_doc, sha256_hex, usd_gb_month
 
 
 def get_fallback_price(
@@ -324,8 +327,10 @@ def get_fallback_price(
     """Generate fallback PriceDoc when API and cache are unavailable."""
     now = int(time.time())
 
+    usd_gb_month: Optional[float] = None
     if kind == "ebs":
         rate_gb_month = FALLBACK_USD_HOUR.get(sub_type, FALLBACK_USD_HOUR["gp3"])
+        usd_gb_month = rate_gb_month
         volume_size = size_gb if size_gb is not None and size_gb > 0 else 1
         usd_hour = (rate_gb_month * volume_size) / 730.0
     elif kind == "nat":
@@ -347,6 +352,7 @@ def get_fallback_price(
         fetched_at=now,
         raw_doc=None,
         ttl=None,
+        usd_gb_month=usd_gb_month,
     )
 
 
@@ -373,77 +379,86 @@ def get_price(
     # 1. DynamoDB Cache check
     cached = _get_cached_price(dynamodb_client, pk)
     if cached is not None:
-        if kind == "ebs" and size_gb is not None and size_gb > 0:
-            # Adjust ebs unit price for requested size
-            rate_gb_month = cached.usd_hour * 730.0
-            adjusted_usd = (rate_gb_month * size_gb) / 730.0
+        if kind == "ebs":
+            volume_size = size_gb if size_gb is not None and size_gb > 0 else 1
+            rate_gb_month = (
+                cached.usd_gb_month
+                if cached.usd_gb_month is not None
+                else FALLBACK_USD_HOUR.get(sub_type, FALLBACK_USD_HOUR["gp3"])
+            )
+            usd_hour = (rate_gb_month * volume_size) / 730.0
+            inr_hour = round(usd_hour * USD_INR, 2)
             return PriceDoc(
                 kind=cached.kind,
                 sub_type=cached.sub_type,
                 region=cached.region,
-                usd_hour=round(adjusted_usd, 6),
-                inr_hour=round(adjusted_usd * USD_INR, 2),
+                usd_hour=round(usd_hour, 6),
+                inr_hour=inr_hour,
                 price_ref=cached.price_ref,
                 source=cached.source,
                 fetched_at=cached.fetched_at,
                 raw_doc=cached.raw_doc,
                 s3_key=cached.s3_key,
                 ttl=cached.ttl,
+                usd_gb_month=rate_gb_month,
             )
         return cached
 
-    # 2. AWS Price List API check
-    if pricing_client is not None or _should_attempt_api_call():
-        try:
-            client = pricing_client or boto3.client("pricing", region_name=PRICING_REGION)
-            usd_hour, raw_doc, sha256_hex = _fetch_from_pricing_api(
-                pricing_client=client,
-                kind=kind,
-                sub_type=sub_type,
-                region=region,
-                size_gb=size_gb,
-            )
-            price_ref = f"sha256:{sha256_hex}"
-            inr_hour = round(usd_hour * USD_INR, 2)
+    # 2. AWS Price List API check - always attempt API call and fall back on exception
+    try:
+        client = pricing_client or boto3.client("pricing", region_name=PRICING_REGION)
+        usd_hour, raw_doc, sha256_hex, usd_gb_month = _fetch_from_pricing_api(
+            pricing_client=client,
+            kind=kind,
+            sub_type=sub_type,
+            region=region,
+            size_gb=size_gb,
+        )
+        price_ref = f"sha256:{sha256_hex}"
+        inr_hour = round(usd_hour * USD_INR, 2)
 
-            price_doc = PriceDoc(
-                kind=kind,
-                sub_type=sub_type,
-                region=region,
-                usd_hour=round(usd_hour, 6),
-                inr_hour=inr_hour,
-                price_ref=price_ref,
-                source="aws_pricing_api",
-                fetched_at=now,
-                raw_doc=raw_doc,
-                ttl=now + 86400,
-            )
+        # Cache per-GB-month unit rate for EBS, never a size-adjusted hourly rate
+        doc_to_cache = PriceDoc(
+            kind=kind,
+            sub_type=sub_type,
+            region=region,
+            usd_hour=round(usd_gb_month / 730.0, 6) if kind == "ebs" and usd_gb_month is not None else round(usd_hour, 6),
+            inr_hour=round((usd_gb_month / 730.0) * USD_INR, 2) if kind == "ebs" and usd_gb_month is not None else inr_hour,
+            price_ref=price_ref,
+            source="aws_pricing_api",
+            fetched_at=now,
+            raw_doc=raw_doc,
+            ttl=now + 86400,
+            usd_gb_month=usd_gb_month,
+        )
 
-            # Record in local store for verification
-            _LOCAL_PRICE_DOC_STORE[price_ref] = raw_doc
+        # Record in local store for verification
+        _LOCAL_PRICE_DOC_STORE[price_ref] = raw_doc
 
-            # Cache in DynamoDB (and upload raw document to S3 provenance bucket)
-            _put_cached_price(dynamodb_client, price_doc, s3_client=s3_client, bucket_name=bucket_name)
-            return price_doc
-        except Exception as err:
-            logger.warning(
-                f"AWS Price List API failed for {kind}:{sub_type}:{region}; invoking fallback: {err}",
-                extra={"kind": kind, "sub_type": sub_type, "region": region, "error": str(err)},
-            )
+        # Cache in DynamoDB (and upload raw document to S3 provenance bucket)
+        _put_cached_price(dynamodb_client, doc_to_cache, s3_client=s3_client, bucket_name=bucket_name)
+
+        return PriceDoc(
+            kind=kind,
+            sub_type=sub_type,
+            region=region,
+            usd_hour=round(usd_hour, 6),
+            inr_hour=inr_hour,
+            price_ref=price_ref,
+            source="aws_pricing_api",
+            fetched_at=now,
+            raw_doc=raw_doc,
+            ttl=now + 86400,
+            usd_gb_month=usd_gb_month,
+        )
+    except Exception as err:
+        logger.warning(
+            f"AWS Price List API failed for {kind}:{sub_type}:{region}; invoking fallback: {err}",
+            extra={"kind": kind, "sub_type": sub_type, "region": region, "error": str(err)},
+        )
 
     # 3. Static fallback
     return get_fallback_price(kind, sub_type, region, size_gb)
-
-
-def _should_attempt_api_call() -> bool:
-    """Determine whether to attempt an AWS API call based on environment credentials."""
-    import os
-    return bool(
-        os.getenv("AWS_ACCESS_KEY_ID")
-        or os.getenv("AWS_PROFILE")
-        or os.getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
-        or os.getenv("AWS_WEB_IDENTITY_TOKEN_FILE")
-    )
 
 
 def verify_price_ref(

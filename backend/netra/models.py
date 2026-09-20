@@ -58,6 +58,7 @@ class PriceDoc:
     raw_doc: Optional[str] = None  # Canonical JSON string of source price item
     s3_key: Optional[str] = None  # S3 object key (prices/<sha256>.json)
     ttl: Optional[int] = None  # Cache expiry epoch seconds
+    usd_gb_month: Optional[float] = None  # Per-GB-month unit rate for storage (e.g. EBS gp3)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to plain dictionary."""
@@ -86,6 +87,7 @@ class PriceDoc:
             "raw_doc": data.get("raw_doc"),
             "s3_key": data.get("s3_key"),
             "ttl": int(data["ttl"]) if data.get("ttl") is not None else None,
+            "usd_gb_month": float(data["usd_gb_month"]) if data.get("usd_gb_month") is not None else None,
         }
         return cls(**clean_data)
 

@@ -313,6 +313,9 @@ Resources:
       CodeUri: ../backend
       Handler: netra.api.lambda_handler
       Timeout: 30
+      Environment:
+        Variables:
+          NETRA_STATE_MACHINE_ARN: !Ref NetraRemediateStateMachine
       Policies:
         - Statement:
             - Effect: Allow
@@ -331,6 +334,10 @@ Resources:
               Action:
                 - s3:GetObject
               Resource: !Sub "${NetraPriceDocsBucket.Arn}/*"
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource: !Ref NetraRemediateStateMachine
       Events:
         HttpApiCatchAll:
           Type: HttpApi

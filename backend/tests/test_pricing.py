@@ -320,3 +320,54 @@ def test_models_dynamo_roundtrip():
     assert reconstructed_finding.computed["inr_hour"] == 66.55
     assert reconstructed_finding.resource.sub_type == "c5.4xlarge"
     assert reconstructed_finding.narrative.recommended_action == "snapshot_and_terminate"
+
+
+def test_ebs_cache_hit_regression_unit_rate():
+    """Verify a cache entry populated by a 100 GB volume returns usd_hour == 0.062466 for 500 GB gp3."""
+    raw_json = json.dumps(SAMPLE_EBS_PRODUCT)
+    mock_pricing = MagicMock()
+    mock_pricing.get_products.return_value = {"PriceList": [raw_json]}
+
+    saved_items = {}
+    mock_dynamo = MagicMock()
+
+    def fake_put_item(TableName, Item):
+        saved_items[Item["pk"]["S"]] = Item
+
+    def fake_get_item(TableName, Key):
+        pk = Key["pk"]["S"]
+        if pk in saved_items:
+            return {"Item": saved_items[pk]}
+        return {}
+
+    mock_dynamo.put_item.side_effect = fake_put_item
+    mock_dynamo.get_item.side_effect = fake_get_item
+
+    # 1. 100 GB volume populates cache (0.0912 USD/GB-month)
+    doc_100 = get_price(
+        kind="ebs",
+        sub_type="gp3",
+        region="ap-south-1",
+        size_gb=100,
+        dynamodb_client=mock_dynamo,
+        pricing_client=mock_pricing,
+    )
+    assert doc_100.usd_hour == round((0.0912 * 100) / 730.0, 6)
+    assert doc_100.usd_gb_month == 0.0912
+
+    # 2. 500 GB volume hits cache: must return 0.062466 (rounded to 6dp) for 500 GB gp3 at 0.0912, NOT 6.2465
+    doc_500 = get_price(
+        kind="ebs",
+        sub_type="gp3",
+        region="ap-south-1",
+        size_gb=500,
+        dynamodb_client=mock_dynamo,
+        pricing_client=mock_pricing,
+    )
+
+    assert doc_500.usd_hour == 0.062466
+    assert doc_500.usd_hour != 6.2465
+    assert doc_500.usd_gb_month == 0.0912
+    # Ensure pricing API was called only once (cache hit on second call)
+    mock_pricing.get_products.assert_called_once()
+

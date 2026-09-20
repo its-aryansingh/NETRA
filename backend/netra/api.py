@@ -441,6 +441,7 @@ def handle_approve(event: Dict[str, Any], context: Any, finding_id: str, session
                     input=json.dumps({
                         "finding_id": finding_id,
                         "action": action,
+                        "plan": plan,
                         "approval_token": token,
                         "approved_by": "operator@netra.cockpit",
                     }),
