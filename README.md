@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/its-aryansingh/NETRA/actions/workflows/ci.yml/badge.svg)](https://github.com/its-aryansingh/NETRA/actions)
 [![make verify](https://img.shields.io/badge/make%20verify-Passed%20(1.23s)-46D6A0?style=flat-square)](#reproduce-it-in-90-seconds)
-[![Tests Passing](https://img.shields.io/badge/Tests-130%2F130%20Passing-46D6A0?style=flat-square)](backend/tests/)
+[![Tests Passing](https://img.shields.io/badge/Tests-131%2F131%20Passing-46D6A0?style=flat-square)](backend/tests/)
 [![Live Demo](https://img.shields.io/badge/Live%20Cockpit-Amplify%20Hosting-blue?style=flat-square)](https://main.d123456789.amplifyapp.com)
 [![Demo Video](https://img.shields.io/badge/Demo%20Video-YouTube-red?style=flat-square)](#-3-minute-demo-video)
 [![License: MIT](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)](LICENSE)
@@ -153,22 +153,16 @@ NETRA Fast-Path target: UNDER 10 SECONDS
 
 ## Screenshots
 
-The following five screenshots capture the complete operational lifecycle of NETRA:
+The following three screenshots capture the complete operational lifecycle of NETRA:
 
-1. **Overview with a critical finding**: Real-time spend velocity in ₹/hr, 60-snapshot baseline, runaway `c5.4xlarge` card, and live priced inventory.
-   ![Overview with a critical finding](docs/screenshots/overview-critical.png)
+1. **Overview — live burn rate and expenditure velocity**: Real-time ₹127.30/hr spend, 5.53× baseline alert, credit runway (15h remaining of $200), minute-by-minute expenditure velocity chart with baseline comparison, and critical/warning finding cards.
+   ![Overview — live burn rate and expenditure velocity](docs/screenshots/overview-critical.png)
 
-2. **Investigation with the agent narrative and trace**: Verified Claude 3.7 Sonnet narrative, supporting CloudWatch evidence chips, MCP tool latency trace, and dry-run preview.
-   ![Investigation with the agent narrative and trace](docs/screenshots/investigation-trace.png)
+2. **Overview — priced inventory and detection latency**: Projected month-end ₹92,929, prevented spend ₹48,576 from 8 approved remediations, 42s detection latency vs Cost Explorer's 24h, live priced inventory with SHA-256 hashed provenance, and `netra:protected` tag badge on safeguarded resources.
+   ![Overview — priced inventory and detection latency](docs/screenshots/investigation-trace.png)
 
-3. **The policy-denial state**: Cedar policy engine evaluating `forbid_protected`, disabling the Approve button, and explaining the tag constraint.
-   ![The policy-denial state](docs/screenshots/policy-denial.png)
-
-4. **The audit ledger**: Immutable DynamoDB audit log recording executed actions, recovered monthly spend, and retained 7-day rollback snapshot IDs.
-   ![The audit ledger](docs/screenshots/audit-ledger.png)
-
-5. **A terminal showing make verify**: Six cryptographic invariant checks passing cleanly in 1.23 seconds.
-   ![Terminal showing make verify](docs/screenshots/terminal-make-verify.png)
+3. **Audit ledger — recovered spend and remediation trail**: ₹65,392.20 cumulative recovered spend (verified), 5 human-authorized executed actions, 1 safety-net rollback from EBS recovery snapshot, recovered spend by anomaly cause (idle_compute ₹48,576, orphaned_storage ₹5,446, idle_nat ₹4,070), and append-only DynamoDB stream audit ledger.
+   ![Audit ledger — recovered spend and remediation trail](docs/screenshots/audit-ledger.png)
 
 ---
 
@@ -545,14 +539,14 @@ netra/
 
 ## Testing
 
-NETRA maintains **114 automated unit, integration, and policy tests covering 100% of core contracts**:
+NETRA maintains **131 automated unit, integration, and policy tests covering 100% of core contracts**:
 
 ```bash
 python -m pytest backend/tests/ -v
 ```
 
 ```text
-============================ 114 passed in 20.57s =============================
+============================ 131 passed in 21.28s =============================
 ```
 
 ### Test Coverage Areas
