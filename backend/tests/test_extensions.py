@@ -88,7 +88,7 @@ def test_by_region_aggregation():
 
 def test_multi_region_collection_concurrency():
     """Verify collect() with multiple regions queries each region and aggregates results."""
-    def mock_single(session, reg, dynamo, pricing):
+    def mock_single(session, reg, dynamo, pricing, s3_client=None, bucket_name=None):
         return [
             PricedResource(
                 resource_id=f"res-{reg}",

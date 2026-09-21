@@ -24,6 +24,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from netra.config import (
+    BUCKET_PRICE_DOCS,
     REGION,
     TABLE_BURN_SNAPSHOTS,
     TABLE_FINDINGS,
@@ -341,10 +342,15 @@ def run_collector(
     except Exception:
         events = None
 
+    try:
+        s3 = sess.client("s3", region_name=region)
+    except Exception:
+        s3 = None
+
     logger.info("Starting NETRA inventory collection...")
     # 1. Collect inventory & prices
     scan_regions = regions if regions is not None else [region]
-    resources = collect(session=sess, region=region, dynamodb_client=dynamo, regions=scan_regions)
+    resources = collect(session=sess, region=region, dynamodb_client=dynamo, regions=scan_regions, s3_client=s3, bucket_name=BUCKET_PRICE_DOCS)
     tot_inr = total_inr_hour(resources)
     tot_usd = total_usd_hour(resources)
 

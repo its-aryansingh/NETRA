@@ -54,6 +54,8 @@ def collect_single_region(
     region: str = REGION,
     dynamodb_client: Any = None,
     pricing_client: Any = None,
+    s3_client: Any = None,
+    bucket_name: Optional[str] = None,
 ) -> List[PricedResource]:
     """Discover active compute, unattached storage, and NAT gateways in target region.
     
@@ -92,6 +94,8 @@ def collect_single_region(
                             region=region,
                             dynamodb_client=dynamodb_client,
                             pricing_client=pricing_client,
+                            s3_client=s3_client,
+                            bucket_name=bucket_name,
                         )
                         priced_resources.append(
                             PricedResource(
@@ -148,6 +152,8 @@ def collect_single_region(
                         size_gb=size_gb,
                         dynamodb_client=dynamodb_client,
                         pricing_client=pricing_client,
+                        s3_client=s3_client,
+                        bucket_name=bucket_name,
                     )
                     priced_resources.append(
                         PricedResource(
@@ -199,6 +205,8 @@ def collect_single_region(
                         region=region,
                         dynamodb_client=dynamodb_client,
                         pricing_client=pricing_client,
+                        s3_client=s3_client,
+                        bucket_name=bucket_name,
                     )
                     priced_resources.append(
                         PricedResource(
@@ -236,6 +244,8 @@ def collect(
     dynamodb_client: Any = None,
     pricing_client: Any = None,
     regions: Optional[List[str]] = None,
+    s3_client: Any = None,
+    bucket_name: Optional[str] = None,
 ) -> List[PricedResource]:
     """Discover active compute, unattached storage, and NAT gateways across target region(s).
     
@@ -246,7 +256,7 @@ def collect(
         results: List[PricedResource] = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(regions), 8)) as executor:
             futures = {
-                executor.submit(collect_single_region, session, reg, dynamodb_client, pricing_client): reg
+                executor.submit(collect_single_region, session, reg, dynamodb_client, pricing_client, s3_client, bucket_name): reg
                 for reg in regions
             }
             for fut in concurrent.futures.as_completed(futures):
@@ -259,7 +269,7 @@ def collect(
         return sorted(results, key=lambda x: x.resource_id)
 
     target_region = regions[0] if (regions and len(regions) == 1) else region
-    return collect_single_region(session, target_region, dynamodb_client, pricing_client)
+    return collect_single_region(session, target_region, dynamodb_client, pricing_client, s3_client, bucket_name)
 
 
 def total_inr_hour(resources: List[PricedResource]) -> float:

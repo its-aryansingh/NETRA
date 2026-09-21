@@ -54,6 +54,16 @@ jobs:
       - name: Validate SAM template
         run: sam validate -t infra/template.yaml --lint
 
+      - name: Install CloudFormation Guard
+        run: |
+          curl -Lo cfn-guard.tar.gz https://github.com/aws-cloudformation/cloudformation-guard/releases/latest/download/cfn-guard-v3-ubuntu-latest.tar.gz
+          tar -xzf cfn-guard.tar.gz
+          chmod +x cfn-guard
+          sudo mv cfn-guard /usr/local/bin/
+
+      - name: Run CloudFormation Guard
+        run: cfn-guard validate -d infra/template.yaml -r infra/rules/netra.guard --show-summary all
+
   frontend:
     name: Frontend Typecheck & Build
     runs-on: ubuntu-latest

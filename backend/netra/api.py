@@ -19,6 +19,7 @@ from botocore.exceptions import ClientError
 
 from netra.config import (
     REGION,
+    SQS_FINDINGS_QUEUE_URL,
     TABLE_AUDIT_LOG,
     TABLE_BURN_SNAPSHOTS,
     TABLE_FINDINGS,
@@ -1064,6 +1065,64 @@ def handle_auth_keys(event: Dict[str, Any], context: Any = None) -> Dict[str, An
     })
 
 
+def handle_reinvestigate(event: Dict[str, Any], context: Any, finding_id: str, session: Optional[boto3.Session] = None) -> Dict[str, Any]:
+    """POST /api/findings/{id}/reinvestigate — Re-queue finding for SQS-driven investigation."""
+    is_auth, caller = get_caller_identity(event, allow_demo_fallback=True)
+    if not has_permission(caller.get("role", ROLE_VIEWER), PERM_APPROVE):
+        return _error_response(403, "Forbidden: Insufficient permissions to reinvestigate", "FORBIDDEN")
+
+    sess = session or boto3.Session(region_name=REGION)
+    queue_url = SQS_FINDINGS_QUEUE_URL
+    if not queue_url:
+        return _error_response(400, "SQS queue URL not configured (NETRA_SQS_FINDINGS_QUEUE_URL)", "SQS_NOT_CONFIGURED")
+
+    try:
+        dynamo = sess.client("dynamodb", region_name=REGION)
+        resp = dynamo.get_item(
+            TableName=TABLE_FINDINGS,
+            Key={"pk": {"S": "ACCOUNT#default"}, "sk": {"S": f"FIND#{finding_id}"}},
+        )
+        item = resp.get("Item")
+        if not item:
+            return _error_response(404, f"Finding {finding_id} not found", "NOT_FOUND")
+
+        # Update status to REINVESTIGATING
+        dynamo.update_item(
+            TableName=TABLE_FINDINGS,
+            Key={"pk": {"S": "ACCOUNT#default"}, "sk": {"S": f"FIND#{finding_id}"}},
+            UpdateExpression="SET #st = :st_val",
+            ExpressionAttributeNames={"#st": "status"},
+            ExpressionAttributeValues={":st_val": {"S": "REINVESTIGATING"}},
+        )
+
+        # Send message to SQS findings queue
+        sqs = sess.client("sqs", region_name=REGION)
+        sqs.send_message(
+            QueueUrl=queue_url,
+            MessageBody=json.dumps({
+                "source": "netra.api",
+                "detail-type": "netra.finding.reinvestigate",
+                "detail": {
+                    "finding_id": finding_id,
+                    "resource_id": item.get("resource_id", {}).get("S", ""),
+                    "kind": item.get("kind", {}).get("S", ""),
+                    "status": "REINVESTIGATING",
+                    "requested_by": caller.get("user_id", "operator@netra.cockpit"),
+                    "requested_at": int(time.time()),
+                },
+            }),
+        )
+
+        return _json_response(200, {
+            "finding_id": finding_id,
+            "status": "REINVESTIGATING",
+            "queued": True,
+        })
+    except Exception as err:
+        logger.warning(f"Failed to reinvestigate finding {finding_id}: {err}")
+        return _error_response(500, str(err))
+
+
 # -----------------------------------------------------------------------------
 # Internal Router & Lambda Handler
 # -----------------------------------------------------------------------------
@@ -1141,6 +1200,11 @@ def lambda_handler(event: Dict[str, Any], context: Any, session: Optional[boto3.
         m_snz = re.match(r"^/api/findings/([a-zA-Z0-9_-]+)/snooze$", path)
         if method == "POST" and m_snz:
             return handle_snooze(event, context, finding_id=m_snz.group(1), session=sess)
+
+        # /api/findings/{id}/reinvestigate
+        m_reinv = re.match(r"^/api/findings/([a-zA-Z0-9_-]+)/reinvestigate$", path)
+        if method == "POST" and m_reinv:
+            return handle_reinvestigate(event, context, finding_id=m_reinv.group(1), session=sess)
 
         if method == "GET" and path == "/api/audit":
             return handle_audit(event, context, session=sess)
