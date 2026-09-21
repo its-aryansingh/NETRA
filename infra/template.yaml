@@ -16,7 +16,7 @@ Parameters:
     Description: "OpenAI API key for root cause narration (gpt-4o-mini)"
   ModelProvider:
     Type: String
-    Default: "openai"
+    Default: "bedrock"
     Description: "Primary LLM provider: openai, bedrock, or ollama"
   OpenAiModel:
     Type: String

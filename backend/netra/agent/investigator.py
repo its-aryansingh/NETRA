@@ -40,7 +40,7 @@ BEDROCK_MODEL_ID = os.getenv(
     "NETRA_BEDROCK_MODEL_ID",
     "apac.anthropic.claude-sonnet-4-5-20250929-v1:0"
 )
-MODEL_PROVIDER = os.getenv("NETRA_MODEL_PROVIDER", "openai").lower()
+MODEL_PROVIDER = os.getenv("NETRA_MODEL_PROVIDER", "bedrock").lower()
 
 
 def _update_finding_status(
@@ -144,10 +144,13 @@ def _invoke_llm(
     session: Optional[boto3.Session] = None,
     region: str = REGION,
 ) -> Dict[str, Any]:
-    """Invoke configured LLM provider (OpenAI gpt-4o-mini, Bedrock, or Ollama)."""
-    if MODEL_PROVIDER == "openai":
-        return _invoke_openai(prompt)
+    """Invoke configured LLM provider with automatic cross-provider fallback.
 
+    Resolution order:
+    1. Try configured MODEL_PROVIDER (default: bedrock)
+    2. On failure, try alternate provider (bedrock <-> openai)
+    3. Caller handles final exception -> deterministic fallback
+    """
     if MODEL_PROVIDER == "ollama":
         import urllib.request
         req_data = json.dumps({
@@ -166,31 +169,44 @@ def _invoke_llm(
             data = json.loads(resp.read().decode("utf-8"))
             return json.loads(data["response"])
 
-    if MODEL_PROVIDER in ("bedrock", "anthropic"):
+    def _try_bedrock() -> Dict[str, Any]:
         sess = session or boto3.Session(region_name=region)
         bedrock = sess.client("bedrock-runtime", region_name=region)
-
         messages = [
             {"role": "user", "content": [{"text": prompt}]}
         ]
-
         resp = bedrock.converse(
             modelId=BEDROCK_MODEL_ID,
             system=[{"text": SYSTEM_PROMPT}],
             messages=messages,
             inferenceConfig={"temperature": 0.0, "maxTokens": 1000},
         )
-
         output_text = resp["output"]["message"]["content"][0]["text"]
-        # Strip markdown block quotes if model wrapped output
         cleaned = output_text.strip()
         if cleaned.startswith("```"):
             lines = cleaned.splitlines()
             cleaned = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
         return json.loads(cleaned)
 
-    # Default fallback to OpenAI
-    return _invoke_openai(prompt)
+    if MODEL_PROVIDER in ("bedrock", "anthropic"):
+        try:
+            return _try_bedrock()
+        except Exception as bedrock_err:
+            logger.warning(f"Bedrock invocation failed, trying OpenAI fallback: {bedrock_err}")
+            try:
+                return _invoke_openai(prompt)
+            except Exception:
+                raise bedrock_err
+
+    # MODEL_PROVIDER == "openai" or anything else
+    try:
+        return _invoke_openai(prompt)
+    except Exception as openai_err:
+        logger.warning(f"OpenAI invocation failed, trying Bedrock fallback: {openai_err}")
+        try:
+            return _try_bedrock()
+        except Exception:
+            raise openai_err
 
 
 def investigate_finding(

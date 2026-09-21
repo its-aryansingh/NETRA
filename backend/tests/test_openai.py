@@ -159,6 +159,7 @@ def test_investigator_e2e_openai_success(monkeypatch, sample_finding, mock_opena
     """End-to-end test: OpenAI generates narrative, passes validation, sets source to openai."""
     monkeypatch.setenv("NETRA_MODEL_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr("netra.agent.investigator.MODEL_PROVIDER", "openai")
 
     mock_resp = MagicMock()
     mock_resp.read.return_value = json.dumps(mock_openai_response).encode("utf-8")
